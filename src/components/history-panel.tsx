@@ -18,7 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye } from "lucide-react";
+import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -196,6 +196,10 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handlePrintPreview = () => {
+    window.print();
   };
 
 
@@ -468,8 +472,12 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
           </ScrollArea>
 
           <DialogFooter className="mt-auto pt-4">
+            <Button type="button" variant="outline" onClick={handlePrintPreview} className="no-print">
+              <Printer className="mr-2 h-4 w-4" />
+              Imprimir
+            </Button>
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cerrar</Button>
+              <Button type="button" variant="outline" className="no-print">Cerrar</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
