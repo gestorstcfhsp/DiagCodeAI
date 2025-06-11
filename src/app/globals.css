@@ -84,7 +84,33 @@
 }
 
 @media print {
-  .no-print {
+  body.printing-active > *:not([data-radix-dialog-portal]) {
+    display: none !important;
+  }
+  body.printing-active [data-radix-dialog-portal] > [data-radix-dialog-overlay] {
+    display: none !important;
+  }
+  body.printing-active [data-radix-dialog-portal] [data-radix-dialog-content] {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow-y: visible !important;
+    margin: 0 !important;
+    padding: 1rem !important; /* Ajustar padding para impresión */
+    top: 0 !important;
+    left: 0 !important;
+    transform: none !important;
+    max-height: none !important; /* Permitir que el contenido fluya */
+  }
+  body.printing-active [data-radix-dialog-portal] [data-radix-dialog-content] .scroll-area-viewport {
+    /* Si tienes un ScrollArea dentro, puede necesitar ajustes */
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+  body.printing-active .no-print {
     display: none !important;
   }
 }

@@ -149,7 +149,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                 typeof diag.code === 'string' &&
                 typeof diag.description === 'string' &&
                 typeof diag.confidence === 'number' &&
-                typeof diag.id === 'string' && // id de UIDiagnosis
+                typeof diag.id === 'string' && 
                 (typeof diag.isPrincipal === 'boolean' || diag.isPrincipal === undefined) &&
                 (typeof diag.isSelected === 'boolean' || diag.isSelected === undefined)
               )
@@ -199,6 +199,14 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
   };
 
   const handlePrintPreview = () => {
+    document.body.classList.add('printing-active');
+    
+    const handleAfterPrint = () => {
+      document.body.classList.remove('printing-active');
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+    
     window.print();
   };
 
