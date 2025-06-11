@@ -38,7 +38,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
-import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save } from "lucide-react";
+import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { db, type HistoryEntry, type UIDiagnosis } from "@/lib/db";
@@ -185,6 +185,13 @@ export function DiagnosisTool() {
 
     setUploadedFileName(file.name);
     form.setValue('clinicalText', ''); 
+    
+    // Limpiar resultados de IA anteriores al cargar un nuevo archivo
+    setExtractedConcepts([]);
+    setSuggestedDiagnoses([]);
+    setError(null);
+    setSubmitted(false); 
+    setShowClinicalConcepts(false);
         
     await processFileForClinicalNotes(file, 1);
 
@@ -223,11 +230,9 @@ export function DiagnosisTool() {
     form.setValue("codingSystem", entry.codingSystem);
     setUploadedFileName(entry.fileName || null);
     setExtractedConcepts(entry.extractedConcepts);
-    // Asegurarse de que los diagnósticos cargados tengan el ID único para la UI si no lo tuvieran
-    // (aunque el guardado ya debería incluirlo)
     setSuggestedDiagnoses(entry.suggestedDiagnoses.map(diag => ({
         ...diag,
-        id: diag.id || `${diag.code}-${Date.now()}-${Math.random()}` // Fallback si no tiene id
+        id: diag.id || `${diag.code}-${Date.now()}-${Math.random()}` 
     })));
     setSubmitted(true);
     setError(null);
@@ -260,7 +265,7 @@ export function DiagnosisTool() {
 
   const handleSaveToHistory = async () => {
     const data = form.getValues();
-    if (!submitted || isLoading || error) {
+    if (!submitted || isLoading || error || suggestedDiagnoses.length === 0) {
       toast({ variant: "destructive", title: "No se puede guardar", description: "Debe haber resultados válidos para guardar en el historial."});
       return;
     }
@@ -269,8 +274,8 @@ export function DiagnosisTool() {
         timestamp: Date.now(),
         clinicalText: data.clinicalText,
         codingSystem: data.codingSystem,
-        extractedConcepts: extractedConcepts, // Usar el estado actual
-        suggestedDiagnoses: suggestedDiagnoses, // Usar el estado actual con isPrincipal/isSelected
+        extractedConcepts: extractedConcepts,
+        suggestedDiagnoses: suggestedDiagnoses, 
         fileName: uploadedFileName,
       };
       await db.history.add(historyEntry);
@@ -279,6 +284,11 @@ export function DiagnosisTool() {
       console.error("Error saving to history:", dbError);
       toast({ variant: "destructive", title: "Error de Historial", description: "No se pudo guardar el análisis en el historial."});
     }
+  };
+
+  const handleClearSuggestedDiagnoses = () => {
+    setSuggestedDiagnoses([]);
+    toast({ title: "Diagnósticos Limpiados", description: "La lista de diagnósticos sugeridos ha sido borrada."});
   };
 
 
@@ -353,7 +363,7 @@ export function DiagnosisTool() {
       if (diagnosesResultFromAI.status === 'fulfilled' && diagnosesResultFromAI.value) {
         const diagnosesWithUIFields = (diagnosesResultFromAI.value.diagnoses || []).map((diag, index) => ({
           ...diag,
-          id: `${diag.code}-${Date.now()}-${index}`, // ID único para la UI
+          id: `${diag.code}-${Date.now()}-${index}`, 
           isPrincipal: false,
           isSelected: false,
         }));
@@ -385,8 +395,6 @@ export function DiagnosisTool() {
           setError("Una o más operaciones de IA fallaron. Por favor, revise los mensajes de error individuales.");
         }
       }
-
-      // Guardado manual, no automático aquí. El botón "Guardar en Historial" lo hará.
 
     } catch (e: any) { 
       console.error(`Error durante el procesamiento IA (intento ${attempt}):`, e);
@@ -615,12 +623,27 @@ export function DiagnosisTool() {
 
         {(isLoading || (submitted && suggestedDiagnoses.length > 0) || (submitted && !isLoading && suggestedDiagnoses.length === 0 && !error && !isProcessingFile)) && (
           <Card className="shadow-lg rounded-xl">
-            <CardHeader>
-              <CardTitle className="font-headline text-2xl flex items-center">
-                <Stethoscope className="mr-2 h-6 w-6 text-primary" />
-                Diagnósticos Sugeridos
-              </CardTitle>
-              {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}. Seleccione y marque como principal si es necesario.</CardDescription>}
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div className="space-y-1.5">
+                <CardTitle className="font-headline text-2xl flex items-center">
+                  <Stethoscope className="mr-2 h-6 w-6 text-primary" />
+                  Diagnósticos Sugeridos
+                </CardTitle>
+                {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}. Seleccione y marque como principal si es necesario.</CardDescription>}
+              </div>
+              {suggestedDiagnoses.length > 0 && !isLoading && !isProcessingFile && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={handleClearSuggestedDiagnoses} className="h-8 w-8">
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Limpiar Diagnósticos Sugeridos</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Limpiar Diagnósticos Sugeridos</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </CardHeader>
             <CardContent>
               {isLoading && !isProcessingFile && !error && (
@@ -691,3 +714,4 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
+
