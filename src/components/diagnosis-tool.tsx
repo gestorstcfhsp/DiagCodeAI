@@ -21,7 +21,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Label } from "@/components/ui/label"; // Importar Label base
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -32,7 +32,6 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { extractClinicalConcepts } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
@@ -336,30 +335,28 @@ export function DiagnosisTool() {
             <CardContent>
               {isLoading && !isProcessingFile && (
                 <div className="space-y-4">
-                  <Skeleton className="h-32 w-full rounded-md" />
-                  <Skeleton className="h-32 w-full rounded-md" />
+                  <Skeleton className="h-24 w-full rounded-md" />
+                  <Skeleton className="h-24 w-full rounded-md" />
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
                 <div className="space-y-4">
                   {suggestedDiagnoses.map((diag, index) => (
-                    <Card key={index} className="bg-card shadow-md rounded-lg overflow-hidden">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="font-headline text-xl text-primary">{diag.code}</CardTitle>
-                        <CardDescription className="text-base">{diag.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-muted-foreground">Confianza:</span>
-                          <Badge 
+                    <Card key={index} className="bg-card shadow-sm rounded-lg overflow-hidden">
+                      <CardHeader className="p-4">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <CardTitle className="font-headline text-lg text-primary">{diag.code}</CardTitle>
+                            <CardDescription className="text-sm mt-0.5">{diag.description}</CardDescription>
+                          </div>
+                          <Badge
                             variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"}
-                            className="px-2.5 py-0.5 rounded-full text-xs"
+                            className="text-xs px-2 py-0.5 ml-3 shrink-0"
                           >
                             {(diag.confidence * 100).toFixed(0)}%
                           </Badge>
                         </div>
-                        <Progress value={diag.confidence * 100} className="h-2 rounded-full" />
-                      </CardContent>
+                      </CardHeader>
                     </Card>
                   ))}
                 </div>
@@ -383,5 +380,3 @@ export function DiagnosisTool() {
     </div>
   );
 }
-
-    
