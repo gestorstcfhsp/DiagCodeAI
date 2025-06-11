@@ -1,7 +1,7 @@
 // src/ai/flows/extract-text-from-document.ts
 'use server';
 /**
- * @fileOverview Extrae texto de documentos clínicos (imágenes, PDFs) usando OCR/NLP simulado.
+ * @fileOverview Extrae texto de documentos clínicos (imágenes, PDFs) usando OCR/NLP.
  *
  * - extractTextFromDocument - Función para extraer texto de un documento.
  * - ExtractTextFromDocumentInput - Tipo de entrada para la función.
@@ -53,55 +53,9 @@ const extractTextFromDocumentFlow = ai.defineFlow(
     outputSchema: ExtractTextFromDocumentOutputSchema,
   },
   async (input) => {
-    // Simulación para desarrollo o si el modelo no soporta la extracción directa.
-    // En un entorno de producción, se esperaría que el modelo con capacidades de visión intente procesar el {{media}}.
-    const isImage = input.mimeType.startsWith('image/');
-    const isPdf = input.mimeType === 'application/pdf';
-
-    if (process.env.NODE_ENV === 'development' && (isImage || isPdf)) {
-        // Esta simulación se activará en desarrollo. 
-        // El prompt anterior se intentará, pero esto sirve de fallback.
-        console.warn("Usando respuesta simulada para extractTextFromDocumentFlow en desarrollo.");
-        return {
-            extractedText: `--- INICIO DE TEXTO SIMULADO (desde ${input.mimeType}) ---
-
-**Datos del Paciente:**
-- Nombre: Juan Pérez García
-- Fecha de Nacimiento: 15/03/1975
-- ID de Paciente: 789012
-
-**Motivo de Consulta:**
-El paciente refiere dolor abdominal agudo en el cuadrante inferior derecho, de 24 horas de evolución, acompañado de náuseas y fiebre leve (37.8°C).
-
-**Historial Médico Relevante:**
-- Apendicectomía a los 15 años (Negado, error en reporte previo, paciente aclara que fue amigdalectomía).
-- Hipertensión arterial controlada con Enalapril 10mg/día.
-- Diabetes Mellitus tipo 2 diagnosticada hace 5 años, tratamiento con Metformina 850mg BID.
-
-**Examen Físico:**
-- Abdomen: Dolor a la palpación en fosa ilíaca derecha, signo de Blumberg positivo. Ruidos hidroaéreos disminuidos.
-- Signos Vitales: TA 130/85 mmHg, FC 90 lpm, FR 18 rpm, T 37.8°C.
-
-**Pruebas Diagnósticas (Imágenes/Labs):**
-- (Referencia a imagen adjunta no procesable directamente aquí) Se observa imagen compatible con proceso inflamatorio en apéndice.
-- Leucocitosis (15,000/mm³) con neutrofilia (75%).
-
-**Impresión Diagnóstica:**
-1. Sospecha de apendicitis aguda.
-2. Descartar diverticulitis.
-
-**Plan:**
-- Interconsulta con Cirugía General.
-- Mantener en observación, hidratación IV.
-- Analgesia según necesidad.
-
---- FIN DE TEXTO SIMULADO ---
-`
-        };
-    }
-    
     const {output} = await extractTextFromDocumentPrompt(input);
-    if (!output || !output.extractedText) {
+    
+    if (!output || !output.extractedText || output.extractedText.trim() === "") {
       // Fallback si el LLM no devuelve nada o el campo está vacío
       return { extractedText: `No se pudo extraer texto del documento (${input.mimeType}). Por favor, verifique el archivo o ingrese el texto manualmente.` };
     }
