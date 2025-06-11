@@ -179,6 +179,13 @@ export function DiagnosisTool() {
     setUploadedFileName(file.name);
     form.setValue('clinicalText', ''); 
     
+    // Limpiar resultados y errores de IA anteriores
+    setExtractedConcepts([]);
+    setSuggestedDiagnoses([]);
+    setError(null);
+    setSubmitted(false);
+    setShowClinicalConcepts(false);
+    
     await processFileForClinicalNotes(file, 1);
 
     if (fileInputRef.current) {
@@ -219,7 +226,7 @@ export function DiagnosisTool() {
     setSuggestedDiagnoses(entry.suggestedDiagnoses);
     setSubmitted(true);
     setError(null);
-    setShowClinicalConcepts(entry.extractedConcepts.length > 0); // Show concepts if they exist in history
+    setShowClinicalConcepts(entry.extractedConcepts.length > 0); 
     toast({ title: "Historial Cargado", description: "Los datos de la entrada del historial se han cargado en el formulario." });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -326,8 +333,6 @@ export function DiagnosisTool() {
         }
       }
 
-      // Save to history only if both operations were successful (or fulfilled, even if empty)
-      // and it's the final attempt (not a retry in progress)
       if (!needsRetry && conceptsResult.status === 'fulfilled' && diagnosesResult.status === 'fulfilled') {
         try {
           const historyEntry: HistoryEntry = {
