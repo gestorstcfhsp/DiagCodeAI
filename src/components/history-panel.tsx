@@ -18,7 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer } from "lucide-react";
+import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer, FileDown } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -43,6 +43,8 @@ import {
   DialogTrigger
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface HistoryPanelProps {
   onLoadHistory: (entry: HistoryEntry) => void;
@@ -56,6 +58,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewEntry, setPreviewEntry] = useState<HistoryEntry | null>(null);
+  const exportableContentRef = useRef<HTMLDivElement>(null);
 
   const handleDeleteEntry = async (id?: number) => {
     if (id === undefined) return;
@@ -208,6 +211,77 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
     window.addEventListener('afterprint', handleAfterPrint);
     
     window.print();
+  };
+
+  const handleExportToPDF = async (entry: HistoryEntry | null) => {
+    if (!entry || !exportableContentRef.current) {
+      toast({ variant: "destructive", title: "Error", description: "No hay contenido para exportar." });
+      return;
+    }
+
+    const input = exportableContentRef.current;
+    const scrollAreaViewport = input.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+    
+    let originalViewportHeight = '';
+    let originalInputOverflowY = '';
+    let originalInputMaxHeight = '';
+
+    if (scrollAreaViewport) {
+      originalViewportHeight = scrollAreaViewport.style.height;
+      originalInputOverflowY = scrollAreaViewport.style.overflowY;
+      scrollAreaViewport.style.height = 'auto';
+      scrollAreaViewport.style.overflowY = 'visible';
+    }
+    originalInputMaxHeight = input.style.maxHeight;
+    input.style.maxHeight = 'none';
+
+
+    toast({ title: "Exportando a PDF...", description: "Esto puede tardar unos segundos." });
+
+    try {
+      const canvas = await html2canvas(input, {
+        scale: 2, 
+        useCORS: true,
+        logging: false,
+        onclone: (document) => {
+          const clonedExportableContent = document.getElementById(input.id);
+          if (clonedExportableContent) {
+            const clonedScrollAreaViewport = clonedExportableContent.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+            if (clonedScrollAreaViewport) {
+                clonedScrollAreaViewport.style.height = 'auto';
+                clonedScrollAreaViewport.style.overflowY = 'visible';
+            }
+            clonedExportableContent.style.maxHeight = 'none';
+          }
+          if (document.documentElement.classList.contains('dark')) {
+              const clonedBody = document.body; // Or the specific element
+              clonedBody.classList.add('dark');
+          }
+        }
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`historial_diagcode_${entry.id || 'export'}.pdf`);
+
+      toast({ title: "Exportado a PDF", description: "El archivo PDF ha sido descargado." });
+
+    } catch (error) {
+      console.error("Error exportando a PDF:", error);
+      toast({ variant: "destructive", title: "Error de Exportación", description: "No se pudo generar el PDF." });
+    } finally {
+      if (scrollAreaViewport) {
+        scrollAreaViewport.style.height = originalViewportHeight;
+        scrollAreaViewport.style.overflowY = originalInputOverflowY;
+      }
+      input.style.maxHeight = originalInputMaxHeight;
+    }
   };
 
 
@@ -413,73 +487,79 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
 
       {previewEntry && (
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="font-headline text-xl">Detalle de la Entrada del Historial</DialogTitle>
-            <DialogDescription>
-              {format(new Date(previewEntry.timestamp), "PPPPpppp", { locale: es })}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <ScrollArea className="flex-grow overflow-y-auto pr-4 -mr-4">
-            <div className="space-y-4 py-2">
-              <div>
-                <Label className="font-semibold text-base">Fuente:</Label>
-                <p className="text-sm ml-1">{previewEntry.fileName ? `Archivo: ${previewEntry.fileName}` : "Texto Manual"}</p>
-              </div>
-              <Separator />
-              <div>
-                <Label className="font-semibold text-base">Sistema de Codificación:</Label>
-                <p className="text-sm ml-1">{previewEntry.codingSystem}</p>
-              </div>
-              <Separator />
-              <div>
-                <Label className="font-semibold text-base">Notas Clínicas:</Label>
-                <ScrollArea className="h-[150px] w-full rounded-md border p-3 mt-1 bg-secondary/30">
-                  <p className="text-sm whitespace-pre-wrap">{previewEntry.clinicalText}</p>
-                </ScrollArea>
-              </div>
-              <Separator />
-              <div>
-                <Label className="font-semibold text-base">Conceptos Clínicos Extraídos ({previewEntry.extractedConcepts.length}):</Label>
-                {previewEntry.extractedConcepts.length > 0 ? (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {previewEntry.extractedConcepts.map((concept, index) => (
-                      <Badge key={index} variant="secondary" className="text-xs">{concept}</Badge>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground ml-1">No se extrajeron conceptos.</p>
-                )}
-              </div>
-              <Separator />
-              <div>
-                <Label className="font-semibold text-base">Diagnósticos Sugeridos ({previewEntry.suggestedDiagnoses.length}):</Label>
-                {previewEntry.suggestedDiagnoses.length > 0 ? (
-                  <div className="space-y-1.5 mt-1">
-                    {previewEntry.suggestedDiagnoses.map((diag) => (
-                      <Card key={diag.id} className={`p-2 text-sm ${diag.isPrincipal ? 'border-primary' : ''}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            {diag.isPrincipal && <Star className="h-4 w-4 mr-2 text-primary fill-primary" />}
-                            {diag.isSelected && <CheckSquare className="h-4 w-4 mr-2 text-green-600" />}
-                            <span className="font-medium mr-2 text-primary">{diag.code}</span>
-                            <span className="text-card-foreground">{diag.description}</span>
+          <div ref={exportableContentRef} id={`exportable-content-${previewEntry.id}`}>
+            <DialogHeader>
+              <DialogTitle className="font-headline text-xl">Detalle de la Entrada del Historial</DialogTitle>
+              <DialogDescription>
+                {format(new Date(previewEntry.timestamp), "PPPPpppp", { locale: es })}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <ScrollArea className="flex-grow overflow-y-auto pr-4 -mr-4">
+              <div className="space-y-4 py-2">
+                <div>
+                  <Label className="font-semibold text-base">Fuente:</Label>
+                  <p className="text-sm ml-1">{previewEntry.fileName ? `Archivo: ${previewEntry.fileName}` : "Texto Manual"}</p>
+                </div>
+                <Separator />
+                <div>
+                  <Label className="font-semibold text-base">Sistema de Codificación:</Label>
+                  <p className="text-sm ml-1">{previewEntry.codingSystem}</p>
+                </div>
+                <Separator />
+                <div>
+                  <Label className="font-semibold text-base">Notas Clínicas:</Label>
+                  <ScrollArea className="h-[150px] w-full rounded-md border p-3 mt-1 bg-secondary/30">
+                    <p className="text-sm whitespace-pre-wrap">{previewEntry.clinicalText}</p>
+                  </ScrollArea>
+                </div>
+                <Separator />
+                <div>
+                  <Label className="font-semibold text-base">Conceptos Clínicos Extraídos ({previewEntry.extractedConcepts.length}):</Label>
+                  {previewEntry.extractedConcepts.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {previewEntry.extractedConcepts.map((concept, index) => (
+                        <Badge key={index} variant="secondary" className="text-xs">{concept}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground ml-1">No se extrajeron conceptos.</p>
+                  )}
+                </div>
+                <Separator />
+                <div>
+                  <Label className="font-semibold text-base">Diagnósticos Sugeridos ({previewEntry.suggestedDiagnoses.length}):</Label>
+                  {previewEntry.suggestedDiagnoses.length > 0 ? (
+                    <div className="space-y-1.5 mt-1">
+                      {previewEntry.suggestedDiagnoses.map((diag) => (
+                        <Card key={diag.id} className={`p-2 text-sm ${diag.isPrincipal ? 'border-primary' : ''}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                              {diag.isPrincipal && <Star className="h-4 w-4 mr-2 text-primary fill-primary" />}
+                              {diag.isSelected && <CheckSquare className="h-4 w-4 mr-2 text-green-600" />}
+                              <span className="font-medium mr-2 text-primary">{diag.code}</span>
+                              <span className="text-card-foreground">{diag.description}</span>
+                            </div>
+                            <Badge variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"} className="text-xs ml-2">
+                              {(diag.confidence * 100).toFixed(0)}%
+                            </Badge>
                           </div>
-                          <Badge variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"} className="text-xs ml-2">
-                            {(diag.confidence * 100).toFixed(0)}%
-                          </Badge>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground ml-1">No se sugirieron diagnósticos.</p>
-                )}
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground ml-1">No se sugirieron diagnósticos.</p>
+                  )}
+                </div>
               </div>
-            </div>
-          </ScrollArea>
+            </ScrollArea>
+          </div>
 
-          <DialogFooter className="mt-auto pt-4">
+          <DialogFooter className="mt-auto pt-4 no-print-parent">
+            <Button type="button" variant="outline" onClick={() => handleExportToPDF(previewEntry)} className="no-print">
+              <FileDown className="mr-2 h-4 w-4" />
+              Exportar a PDF
+            </Button>
             <Button type="button" variant="outline" onClick={handlePrintPreview} className="no-print">
               <Printer className="mr-2 h-4 w-4" />
               Imprimir

@@ -96,21 +96,25 @@
     height: auto !important;
     box-shadow: none !important;
     border: none !important;
-    overflow-y: visible !important;
+    overflow-y: visible !important; /* Allow content to expand */
     margin: 0 !important;
-    padding: 1rem !important; /* Ajustar padding para impresión */
+    padding: 1rem !important; /* Adjust padding for printing */
     top: 0 !important;
     left: 0 !important;
     transform: none !important;
-    max-height: none !important; /* Permitir que el contenido fluya */
+    max-height: none !important; /* Allow content to flow */
   }
   body.printing-active [data-radix-dialog-portal] [data-radix-dialog-content] .scroll-area-viewport {
-    /* Si tienes un ScrollArea dentro, puede necesitar ajustes */
+    /* If you have a ScrollArea inside, it needs to expand */
     height: auto !important;
     max-height: none !important;
     overflow-y: visible !important;
   }
   body.printing-active .no-print {
+    display: none !important;
+  }
+  /* Hide the footer of the dialog when its parent has no-print-parent */
+  body.printing-active .no-print-parent > .no-print {
     display: none !important;
   }
 }
