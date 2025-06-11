@@ -192,10 +192,10 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                   </div>
                 </CardHeader>
                 <CardContent className="text-sm space-y-2 pb-3">
-                  <p>
+                  <div>
                     <span className="font-semibold">Sistema:</span>{" "}
                     <Badge variant="secondary">{entry.codingSystem}</Badge>
-                  </p>
+                  </div>
                   <p className="line-clamp-2">
                     <span className="font-semibold">Texto Clínico:</span>{" "}
                     {entry.clinicalText}
