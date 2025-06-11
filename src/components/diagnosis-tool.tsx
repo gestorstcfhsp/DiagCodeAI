@@ -21,7 +21,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Label as ShadcnLabel } from "@/components/ui/label"; // Renamed to avoid conflict
+import { Label as ShadcnLabel } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -157,7 +157,7 @@ export function DiagnosisTool() {
     setSubmitted(true);
     setExtractedConcepts([]);
     setSuggestedDiagnoses([]);
-    // setShowClinicalConcepts(false); // Mantener la preferencia del usuario o resetear? Por ahora reseteamos.
+    // setShowClinicalConcepts(false); // Mantener la preferencia del usuario
 
     try {
       const [conceptsResult, diagnosesResult] = await Promise.allSettled([
@@ -211,9 +211,9 @@ export function DiagnosisTool() {
       if (conceptsResult.status === 'rejected' && diagnosesResult.status === 'rejected') {
         setError("Ambas operaciones de IA (conceptos y diagnósticos) fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
       } else if (conceptsResult.status === 'rejected') {
-        setError("Falló la extracción de conceptos. Revise los mensajes e intente de nuevo.");
+        // setError("Falló la extracción de conceptos. Revise los mensajes e intente de nuevo."); // No sobreescribir error si el de diagnóstico ya existe.
       } else if (diagnosesResult.status === 'rejected' && error === null) { 
-        setError("Falló la sugerencia de diagnósticos. Revise los mensajes e intente de nuevo.");
+        // setError("Falló la sugerencia de diagnósticos. Revise los mensajes e intente de nuevo."); // Ya se maneja arriba
       }
 
 
@@ -242,8 +242,8 @@ export function DiagnosisTool() {
 
   return (
     <TooltipProvider>
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <Card className="lg:col-span-1 shadow-lg rounded-xl">
+    <div className="flex flex-col gap-6">
+      <Card className="shadow-lg rounded-xl">
         <CardHeader>
           <CardTitle className="font-headline text-2xl flex items-center">
             <NotebookText className="mr-2 h-6 w-6 text-primary" />
@@ -340,7 +340,7 @@ export function DiagnosisTool() {
         </CardContent>
       </Card>
 
-      <div className="lg:col-span-2 space-y-6">
+      <div className="space-y-6">
         {error && (
           <Alert variant="destructive" className="shadow-md rounded-xl">
             <AlertCircle className="h-4 w-4" />
@@ -350,7 +350,7 @@ export function DiagnosisTool() {
         )}
 
         {submitted && !isLoading && !isProcessingFile && !error && (
-          <div className="flex items-center space-x-2 mt-4 p-4 bg-card shadow-lg rounded-xl border">
+          <div className="flex items-center space-x-2 p-4 bg-card shadow-lg rounded-xl border">
             <Switch
               id="show-concepts-switch"
               checked={showClinicalConcepts}
@@ -398,9 +398,9 @@ export function DiagnosisTool() {
             <CardContent>
               {isLoading && !isProcessingFile && (
                 <div className="space-y-2">
-                  <Skeleton className="h-8 w-3/4 rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-5/6 rounded-md" />
+                  <Skeleton className="h-6 w-3/4 rounded-md" />
+                  <Skeleton className="h-6 w-full rounded-md" />
+                  <Skeleton className="h-6 w-5/6 rounded-md" />
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
@@ -450,3 +450,5 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
+
+    
