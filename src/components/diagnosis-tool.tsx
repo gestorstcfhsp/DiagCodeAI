@@ -38,9 +38,9 @@ import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle } from "luci
 import { useToast } from "@/hooks/use-toast";
 
 const diagnosisFormSchema = z.object({
-  clinicalText: z.string().min(20, "Clinical text must be at least 20 characters."),
+  clinicalText: z.string().min(20, "El texto clínico debe tener al menos 20 caracteres."),
   codingSystem: z.enum(["CIE-10", "CIE-11", "CIE-O"], {
-    required_error: "Please select a coding system.",
+    required_error: "Por favor, seleccione un sistema de codificación.",
   }),
 });
 
@@ -80,37 +80,37 @@ export function DiagnosisTool() {
       if (conceptsResult.status === 'fulfilled' && conceptsResult.value) {
         setExtractedConcepts(conceptsResult.value.clinicalConcepts || []);
       } else if (conceptsResult.status === 'rejected') {
-        console.error("Error extracting concepts:", conceptsResult.reason);
+        console.error("Error extrayendo conceptos:", conceptsResult.reason);
         toast({
           variant: "destructive",
-          title: "Concept Extraction Failed",
-          description: conceptsResult.reason?.message || "An unknown error occurred.",
+          title: "Error en la Extracción de Conceptos",
+          description: conceptsResult.reason?.message || "Ocurrió un error desconocido.",
         });
       }
       
       if (diagnosesResult.status === 'fulfilled' && diagnosesResult.value) {
         setSuggestedDiagnoses(diagnosesResult.value.diagnoses || []);
       } else if (diagnosesResult.status === 'rejected') {
-        console.error("Error suggesting diagnoses:", diagnosesResult.reason);
-        setError(`Failed to suggest diagnoses: ${diagnosesResult.reason?.message || "Unknown error"}`);
+        console.error("Error sugiriendo diagnósticos:", diagnosesResult.reason);
+        setError(`Error al sugerir diagnósticos: ${diagnosesResult.reason?.message || "Error desconocido"}`);
          toast({
           variant: "destructive",
-          title: "Diagnosis Suggestion Failed",
-          description: diagnosesResult.reason?.message || "An unknown error occurred.",
+          title: "Error en la Sugerencia de Diagnósticos",
+          description: diagnosesResult.reason?.message || "Ocurrió un error desconocido.",
         });
       }
 
       if (conceptsResult.status === 'rejected' && diagnosesResult.status === 'rejected') {
-        setError("Both AI operations failed. Please check the console for details and try again.");
+        setError("Ambas operaciones de IA fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
       }
 
     } catch (e: any) {
-      console.error("Error during AI processing:", e);
-      const errorMessage = e.message || "An unexpected error occurred. Please try again.";
+      console.error("Error durante el procesamiento IA:", e);
+      const errorMessage = e.message || "Ocurrió un error inesperado. Por favor, intente de nuevo.";
       setError(errorMessage);
       toast({
         variant: "destructive",
-        title: "Processing Error",
+        title: "Error de Procesamiento",
         description: errorMessage,
       });
     } finally {
@@ -124,9 +124,9 @@ export function DiagnosisTool() {
         <CardHeader>
           <CardTitle className="font-headline text-2xl flex items-center">
             <NotebookText className="mr-2 h-6 w-6 text-primary" />
-            Clinical Input
+            Entrada Clínica
           </CardTitle>
-          <CardDescription>Enter clinical notes and select a coding system.</CardDescription>
+          <CardDescription>Ingrese las notas clínicas y seleccione un sistema de codificación.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -136,10 +136,10 @@ export function DiagnosisTool() {
                 name="clinicalText"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Clinical Notes</FormLabel>
+                    <FormLabel>Notas Clínicas</FormLabel>
                     <FormControl>
                       <Textarea
-                        placeholder="Paste or type clinical notes here..."
+                        placeholder="Pegue o escriba las notas clínicas aquí..."
                         className="min-h-[200px] resize-y rounded-md shadow-sm focus:ring-primary"
                         {...field}
                       />
@@ -153,17 +153,17 @@ export function DiagnosisTool() {
                 name="codingSystem"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Coding System</FormLabel>
+                    <FormLabel>Sistema de Codificación</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger className="rounded-md shadow-sm focus:ring-primary">
-                          <SelectValue placeholder="Select a coding system" />
+                          <SelectValue placeholder="Seleccione un sistema de codificación" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="CIE-10">CIE-10</SelectItem>
                         <SelectItem value="CIE-11">CIE-11</SelectItem>
-                        <SelectItem value="CIE-O">CIE-O (Oncology)</SelectItem>
+                        <SelectItem value="CIE-O">CIE-O (Oncología)</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -172,7 +172,7 @@ export function DiagnosisTool() {
               />
               <Button type="submit" disabled={isLoading} className="w-full rounded-md shadow-md hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2">
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Get AI Suggestions
+                Obtener Sugerencias IA
               </Button>
             </form>
           </Form>
@@ -193,7 +193,7 @@ export function DiagnosisTool() {
             <CardHeader>
               <CardTitle className="font-headline text-2xl flex items-center">
                 <Lightbulb className="mr-2 h-6 w-6 text-accent" />
-                Extracted Clinical Concepts
+                Conceptos Clínicos Extraídos
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -206,7 +206,7 @@ export function DiagnosisTool() {
                 </div>
               )}
               {!isLoading && submitted && extractedConcepts.length === 0 && !error && (
-                <p className="text-muted-foreground">No clinical concepts were extracted from the provided text.</p>
+                <p className="text-muted-foreground">No se extrajeron conceptos clínicos del texto proporcionado.</p>
               )}
             </CardContent>
           </Card>
@@ -217,9 +217,9 @@ export function DiagnosisTool() {
             <CardHeader>
               <CardTitle className="font-headline text-2xl flex items-center">
                 <Stethoscope className="mr-2 h-6 w-6 text-primary" />
-                Suggested Diagnoses
+                Diagnósticos Sugeridos
               </CardTitle>
-              {suggestedDiagnoses.length > 0 && <CardDescription>Based on {form.getValues("codingSystem")} coding system.</CardDescription>}
+              {suggestedDiagnoses.length > 0 && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}.</CardDescription>}
             </CardHeader>
             <CardContent>
               {isLoading && (
@@ -238,7 +238,7 @@ export function DiagnosisTool() {
                       </CardHeader>
                       <CardContent>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-muted-foreground">Confidence:</span>
+                          <span className="text-sm font-medium text-muted-foreground">Confianza:</span>
                           <Badge 
                             variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"}
                             className="px-2.5 py-0.5 rounded-full text-xs"
@@ -253,7 +253,7 @@ export function DiagnosisTool() {
                 </div>
               )}
               {!isLoading && submitted && suggestedDiagnoses.length === 0 && !error && (
-                <p className="text-muted-foreground">No diagnoses were suggested for the provided text and coding system.</p>
+                <p className="text-muted-foreground">No se sugirieron diagnósticos para el texto y sistema de codificación proporcionados.</p>
               )}
             </CardContent>
           </Card>
@@ -262,7 +262,7 @@ export function DiagnosisTool() {
             <Card className="shadow-lg rounded-xl">
                 <CardContent className="pt-6">
                     <p className="text-center text-muted-foreground">
-                        Enter clinical notes and select a coding system to get started.
+                        Ingrese notas clínicas y seleccione un sistema de codificación para comenzar.
                     </p>
                 </CardContent>
             </Card>
