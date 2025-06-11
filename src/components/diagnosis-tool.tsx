@@ -175,7 +175,7 @@ export function DiagnosisTool() {
     resolver: zodResolver(diagnosisFormSchema),
     defaultValues: {
       clinicalText: "",
-      codingSystem: undefined,
+      codingSystem: "CIE-10",
     },
   });
 
@@ -184,6 +184,11 @@ export function DiagnosisTool() {
       const storedCodingSystem = localStorage.getItem(LOCALSTORAGE_CODING_SYSTEM_KEY) as CodingSystemType | null;
       if (storedCodingSystem && ["CIE-10", "CIE-11", "CIE-O"].includes(storedCodingSystem)) {
         form.setValue('codingSystem', storedCodingSystem);
+      } else {
+        // If nothing valid in localStorage, ensure default is set (which it is by useForm, but this is an explicit backup)
+        // And also update localStorage with the default.
+        form.setValue('codingSystem', 'CIE-10');
+        localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, 'CIE-10');
       }
     }
   }, [form]);
