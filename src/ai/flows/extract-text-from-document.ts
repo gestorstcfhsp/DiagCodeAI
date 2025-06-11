@@ -1,9 +1,9 @@
 // src/ai/flows/extract-text-from-document.ts
 'use server';
 /**
- * @fileOverview Extrae texto de documentos clínicos (imágenes, PDFs) usando OCR/NLP.
+ * @fileOverview Extrae texto de documentos clínicos (imágenes, PDFs) usando OCR/NLP y lo adapta para profesionales médicos.
  *
- * - extractTextFromDocument - Función para extraer texto de un documento.
+ * - extractTextFromDocument - Función para extraer y adaptar texto de un documento.
  * - ExtractTextFromDocumentInput - Tipo de entrada para la función.
  * - ExtractTextFromDocumentOutput - Tipo de salida para la función.
  */
@@ -22,7 +22,7 @@ const ExtractTextFromDocumentInputSchema = z.object({
 export type ExtractTextFromDocumentInput = z.infer<typeof ExtractTextFromDocumentInputSchema>;
 
 const ExtractTextFromDocumentOutputSchema = z.object({
-  extractedText: z.string().describe('El texto extraído y potencialmente estructurado del documento.'),
+  extractedText: z.string().describe('El texto extraído, estructurado y adaptado del documento para uso médico.'),
 });
 export type ExtractTextFromDocumentOutput = z.infer<typeof ExtractTextFromDocumentOutputSchema>;
 
@@ -38,12 +38,13 @@ const extractTextFromDocumentPrompt = ai.definePrompt({
 Tu tarea es extraer todo el texto clínico relevante del documento proporcionado.
 Si el documento es una imagen o PDF, realiza OCR para obtener el texto.
 Luego, estructura la información de manera clara y concisa.
+**Adapta el lenguaje del texto extraído para que sea fácilmente comprensible por un profesional médico. Esto incluye, pero no se limita a, expandir abreviaturas comunes, usar terminología médica estándar y asegurar la claridad general del texto.**
 Prioriza la extracción de información del paciente, síntomas, observaciones, historial médico y cualquier diagnóstico preliminar si está presente.
 
 Documento (MIME Type: {{{mimeType}}}):
 {{media url=documentDataUri}}
 
-Devuelve únicamente el texto extraído y estructurado. Si no puedes extraer texto significativo, indica que no se pudo procesar el contenido.`,
+Devuelve únicamente el texto extraído, estructurado y adaptado para profesionales médicos. Si no puedes extraer texto significativo, indica que no se pudo procesar el contenido.`,
 });
 
 const extractTextFromDocumentFlow = ai.defineFlow(
@@ -57,7 +58,7 @@ const extractTextFromDocumentFlow = ai.defineFlow(
     
     if (!output || !output.extractedText || output.extractedText.trim() === "") {
       // Fallback si el LLM no devuelve nada o el campo está vacío
-      return { extractedText: `No se pudo extraer texto del documento (${input.mimeType}). Por favor, verifique el archivo o ingrese el texto manualmente.` };
+      return { extractedText: `No se pudo extraer o adaptar texto del documento (${input.mimeType}). Por favor, verifique el archivo o ingrese el texto manualmente.` };
     }
     return output;
   }
