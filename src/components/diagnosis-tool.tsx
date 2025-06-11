@@ -269,7 +269,6 @@ export function DiagnosisTool() {
     setUploadedFileName(file.name);
     form.setValue('clinicalText', ''); 
     
-    // Limpiar resultados de IA anteriores al cargar un nuevo archivo
     setExtractedConcepts([]);
     setSuggestedDiagnoses([]);
     setError(null);
@@ -288,7 +287,6 @@ export function DiagnosisTool() {
     form.setValue("clinicalText", "");
     setFileProcessingError(null);
     
-    // Limpiar resultados de IA
     setExtractedConcepts([]);
     setSuggestedDiagnoses([]);
     setError(null);
@@ -315,6 +313,29 @@ export function DiagnosisTool() {
       toast({ variant: "destructive", title: "Error al copiar", description: "No se pudo copiar el texto al portapapeles." });
     }
   };
+  
+  const handleCopySuggestedDiagnoses = async () => {
+    if (!suggestedDiagnoses || suggestedDiagnoses.length === 0) {
+      toast({ variant: "destructive", title: "Nada que copiar", description: "No hay diagnósticos sugeridos para copiar." });
+      return;
+    }
+
+    const selectedDiagnoses = suggestedDiagnoses.filter(diag => diag.isSelected);
+    const diagnosesToCopy = selectedDiagnoses.length > 0 ? selectedDiagnoses : suggestedDiagnoses;
+
+    const textToCopy = diagnosesToCopy
+      .map(diag => `${diag.code} - ${diag.description}`)
+      .join("\n");
+
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      toast({ title: "¡Diagnósticos copiados!", description: `${diagnosesToCopy.length} diagnóstico(s) copiado(s) al portapapeles.` });
+    } catch (err) {
+      console.error("Error al copiar diagnósticos: ", err);
+      toast({ variant: "destructive", title: "Error al copiar", description: "No se pudieron copiar los diagnósticos." });
+    }
+  };
+
 
   const handleLoadFromHistory = (entry: HistoryEntry) => {
     form.setValue("clinicalText", entry.clinicalText);
@@ -744,17 +765,30 @@ export function DiagnosisTool() {
                 {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}. Seleccione, marque como principal y reordene si es necesario.</CardDescription>}
               </div>
               {suggestedDiagnoses.length > 0 && !isLoading && !isProcessingFile && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={handleClearSuggestedDiagnoses} className="h-8 w-8">
-                      <Trash2 className="h-4 w-4" />
-                      <span className="sr-only">Limpiar Diagnósticos Sugeridos</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Limpiar Diagnósticos Sugeridos</p>
-                  </TooltipContent>
-                </Tooltip>
+                <div className="flex items-center space-x-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" onClick={handleCopySuggestedDiagnoses} className="h-8 w-8">
+                        <ClipboardCopy className="h-4 w-4" />
+                        <span className="sr-only">Copiar Diagnósticos</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Copiar Diagnósticos</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" onClick={handleClearSuggestedDiagnoses} className="h-8 w-8">
+                        <Trash2 className="h-4 w-4" />
+                        <span className="sr-only">Limpiar Diagnósticos Sugeridos</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Limpiar Diagnósticos Sugeridos</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               )}
             </CardHeader>
             <CardContent>
@@ -805,3 +839,4 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
+
