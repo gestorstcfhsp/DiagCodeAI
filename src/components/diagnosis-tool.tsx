@@ -204,10 +204,18 @@ export function DiagnosisTool() {
     setUploadedFileName(null);
     form.setValue("clinicalText", "");
     setFileProcessingError(null);
+    
+    // Limpiar resultados de IA
+    setExtractedConcepts([]);
+    setSuggestedDiagnoses([]);
+    setError(null);
+    setSubmitted(false);
+    setShowClinicalConcepts(false);
+
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-    toast({ title: "Entrada de archivo limpiada", description: "Puede ingresar texto manualmente o cargar un nuevo archivo." });
+    toast({ title: "Entrada de archivo y resultados limpiados", description: "Puede ingresar texto manualmente o cargar un nuevo archivo." });
   };
 
   const handleCopyClinicalNotes = async () => {
@@ -592,7 +600,7 @@ export function DiagnosisTool() {
                 Mostrar Conceptos Clínicos Extraídos
               </Label>
             </div>
-            <Button onClick={handleSaveToHistory} size="sm" disabled={isLoading || isProcessingFile || !submitted || error || suggestedDiagnoses.length === 0}>
+            <Button onClick={handleSaveToHistory} size="sm" disabled={isLoading || isProcessingFile || !submitted || !!error || suggestedDiagnoses.length === 0}>
               <Save className="mr-2 h-4 w-4" />
               Guardar en Historial
             </Button>
