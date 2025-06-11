@@ -18,10 +18,10 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
+  FormLabel as ShadcnFormLabel, 
   FormMessage,
 } from "@/components/ui/form";
-import { Label as ShadcnLabel } from "@/components/ui/label";
+import { Label } from "@/components/ui/label"; 
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -34,10 +34,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { extractClinicalConcepts } from "@/ai/flows/extract-clinical-concepts";
+import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
-import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, RotateCw } from "lucide-react";
+import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -51,8 +51,8 @@ const diagnosisFormSchema = z.object({
 
 type DiagnosisFormValues = z.infer<typeof diagnosisFormSchema>;
 
-const MAX_RETRY_ATTEMPTS = 2; // Original attempt + 1 retry
-const RETRY_DELAY_MS = 30000; // 30 seconds
+const MAX_RETRY_ATTEMPTS = 2; 
+const RETRY_DELAY_MS = 30000; 
 
 function isRetryableError(error: any): boolean {
   if (error instanceof Error && error.message) {
@@ -126,7 +126,7 @@ export function DiagnosisTool() {
               duration: RETRY_DELAY_MS + 2000,
             });
             setTimeout(() => processFileForClinicalNotes(file, attempt + 1), RETRY_DELAY_MS);
-            return; // No continuar al manejo de error final ni a setIsProcessingFile(false)
+            return; 
           }
           
           let userMessage = "Ocurrió un error al procesar el documento. Por favor, intente de nuevo.";
@@ -169,7 +169,7 @@ export function DiagnosisTool() {
     await processFileForClinicalNotes(file, 1);
 
     if (fileInputRef.current) {
-      fileInputRef.current.value = ""; // Resetear para permitir cargar el mismo archivo de nuevo
+      fileInputRef.current.value = ""; 
     }
   };
   
@@ -186,7 +186,7 @@ export function DiagnosisTool() {
   const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data, attempt = 1) => {
     setIsLoading(true);
     setError(null);
-    if (attempt === 1) { // Solo resetear para el intento original
+    if (attempt === 1) { 
       setSubmitted(true);
       setExtractedConcepts([]);
       setSuggestedDiagnoses([]);
@@ -196,8 +196,11 @@ export function DiagnosisTool() {
       toast({ title: "Reintentando Sugerencias IA", description: `Intentando obtener sugerencias de nuevo (intento ${attempt}/${MAX_RETRY_ATTEMPTS})...` });
     }
 
+    let conceptsResult: PromiseSettledResult<ExtractClinicalConceptsOutput> | undefined;
+    let diagnosesResult: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
+
     try {
-      const [conceptsResult, diagnosesResult] = await Promise.allSettled([
+      [conceptsResult, diagnosesResult] = await Promise.allSettled([
         extractClinicalConcepts({ documentText: data.clinicalText }),
         suggestDiagnoses({ clinicalText: data.clinicalText, codingSystem: data.codingSystem })
       ]);
@@ -212,7 +215,7 @@ export function DiagnosisTool() {
       }
       if (diagnosesResult.status === 'rejected' && isRetryableError(diagnosesResult.reason)) {
         needsRetry = true;
-        retryableErrorMessage = retryableErrorMessage || diagnosesResult.reason.message; // Tomar el primer mensaje de error reintentable
+        retryableErrorMessage = retryableErrorMessage || diagnosesResult.reason.message; 
         console.error("Error reintentable sugiriendo diagnósticos:", diagnosesResult.reason);
       }
 
@@ -224,14 +227,11 @@ export function DiagnosisTool() {
           duration: RETRY_DELAY_MS + 2000,
         });
         setTimeout(() => {
-          // Necesitamos envolver la llamada a onSubmit dentro de handleSubmit para que RHF maneje la validación, etc.
-          // Sin embargo, el `data` ya lo tenemos del intento anterior, por lo que lo pasamos directamente.
           onSubmit(data, attempt + 1);
         }, RETRY_DELAY_MS);
-        return; // No continuar al manejo de error final ni a setIsLoading(false)
+        return; 
       }
 
-      // Procesar resultados si no hay reintento o es el último intento
       if (conceptsResult.status === 'fulfilled' && conceptsResult.value) {
         setExtractedConcepts(conceptsResult.value.clinicalConcepts || []);
       } else if (conceptsResult.status === 'rejected') {
@@ -267,7 +267,6 @@ export function DiagnosisTool() {
                  diagnoseErrorMessage = diagnosesResult.reason.message;
             }
         }
-        // Solo mostrar error si no se ha mostrado ya uno de conceptos
         if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`);
          toast({
           variant: "destructive",
@@ -280,7 +279,7 @@ export function DiagnosisTool() {
         setError("Ambas operaciones de IA (conceptos y diagnósticos) fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
       }
 
-    } catch (e: any) { // Catch para errores inesperados no manejados por Promise.allSettled
+    } catch (e: any) { 
       console.error(`Error durante el procesamiento IA (intento ${attempt}):`, e);
       let generalErrorMessage = "Ocurrió un error inesperado durante el procesamiento con IA. Por favor, intente de nuevo.";
       if (isRetryableError(e) && attempt < MAX_RETRY_ATTEMPTS) {
@@ -312,8 +311,6 @@ export function DiagnosisTool() {
         description: generalErrorMessage,
       });
     } finally {
-      // Solo desactivar isLoading si no hay un reintento pendiente para onSubmit
-      // La lógica de reintento se encarga de mantener isLoading activo si es necesario
       const isAnyOperationStillRetrying = (
         ( (conceptsResult?.status === 'rejected' && isRetryableError(conceptsResult.reason)) || 
           (diagnosesResult?.status === 'rejected' && isRetryableError(diagnosesResult.reason)) 
@@ -340,7 +337,7 @@ export function DiagnosisTool() {
         <CardContent>
           <div className="space-y-4 mb-6">
             <div>
-              <ShadcnLabel htmlFor="file-upload-input">Cargar Documento (Opcional)</ShadcnLabel>
+              <Label htmlFor="file-upload-button">Cargar Documento (Opcional)</Label>
               <div className="flex items-center space-x-2 mt-1">
                 <Button id="file-upload-button" type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isProcessingFile} className="flex-grow justify-start text-left">
                   {isProcessingFile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
@@ -353,7 +350,7 @@ export function DiagnosisTool() {
                   accept="image/*,application/pdf,.txt"
                   className="hidden"
                   disabled={isProcessingFile}
-                  id="file-upload-input"
+                  id="file-upload-input" 
                 />
               </div>
             </div>
@@ -382,7 +379,7 @@ export function DiagnosisTool() {
                 name="clinicalText"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Notas Clínicas (Editable)</FormLabel>
+                    <ShadcnFormLabel>Notas Clínicas (Editable)</ShadcnFormLabel>
                     <FormControl>
                       <Textarea
                         placeholder="Pegue, escriba las notas clínicas o cárguelas desde un archivo..."
@@ -400,7 +397,7 @@ export function DiagnosisTool() {
                 name="codingSystem"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Sistema de Codificación</FormLabel>
+                    <ShadcnFormLabel>Sistema de Codificación</ShadcnFormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isProcessingFile || isLoading}>
                       <FormControl>
                         <SelectTrigger className="rounded-md shadow-sm focus:ring-primary">
@@ -427,7 +424,7 @@ export function DiagnosisTool() {
       </Card>
 
       <div className="space-y-6">
-        {error && !isLoading && ( // No mostrar error general si estamos en medio de un reintento de submit
+        {error && !isLoading && ( 
           <Alert variant="destructive" className="shadow-md rounded-xl">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle className="font-headline">Error de IA</AlertTitle>
@@ -442,9 +439,9 @@ export function DiagnosisTool() {
               checked={showClinicalConcepts}
               onCheckedChange={setShowClinicalConcepts}
             />
-            <ShadcnLabel htmlFor="show-concepts-switch" className="text-sm font-medium">
+            <Label htmlFor="show-concepts-switch" className="text-sm font-medium">
               Mostrar Conceptos Clínicos Extraídos
-            </ShadcnLabel>
+            </Label>
           </div>
         )}
         
@@ -534,5 +531,3 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
-
-    
