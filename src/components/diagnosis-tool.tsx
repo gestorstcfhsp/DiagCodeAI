@@ -541,6 +541,8 @@ export function DiagnosisTool() {
                         if (typeof window !== 'undefined') {
                           localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, value);
                         }
+                        setSuggestedDiagnoses([]); // Limpiar diagnósticos sugeridos al cambiar el sistema
+                        toast({ title: "Diagnósticos Anteriores Limpiados", description: "Se limpiaron las sugerencias debido al cambio de sistema de codificación."});
                       }} 
                       value={field.value} 
                       disabled={isProcessingFile || isLoading}
