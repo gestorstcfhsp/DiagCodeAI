@@ -18,7 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer, FileDown } from "lucide-react";
+import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer, FileDown, X } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -42,6 +42,7 @@ import {
   DialogClose,
   DialogTrigger
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -409,16 +410,15 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                             size="icon"
                             className="h-7 w-7 text-muted-foreground hover:text-primary"
                             onClick={() => setPreviewEntry(entry)}
+                            aria-label="Ver detalles"
                           >
                             <Eye className="h-4 w-4" />
-                            <span className="sr-only">Ver detalles</span>
                           </Button>
                         </DialogTrigger>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label="Eliminar entrada">
                                   <Trash2 className="h-4 w-4" />
-                                  <span className="sr-only">Eliminar entrada</span>
                               </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
@@ -486,17 +486,38 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
       </Card>
 
       {previewEntry && (
-        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
-          <div ref={exportableContentRef} id={`exportable-content-${previewEntry.id}`}>
-            <DialogHeader>
-              <DialogTitle className="font-headline text-xl">Detalle de la Entrada del Historial</DialogTitle>
-              <DialogDescription>
-                {format(new Date(previewEntry.timestamp), "PPPPpppp", { locale: es })}
-              </DialogDescription>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col p-0">
+          <div ref={exportableContentRef} id={`exportable-content-${previewEntry.id}`} className="flex flex-col flex-grow overflow-hidden">
+            <DialogHeader className="p-6 pb-4 flex flex-row justify-between items-start sticky top-0 bg-background z-10 border-b">
+              <div>
+                <DialogTitle className="font-headline text-xl">Detalle de la Entrada del Historial</DialogTitle>
+                <DialogDescription>
+                  {format(new Date(previewEntry.timestamp), "PPPPpppp", { locale: es })}
+                </DialogDescription>
+              </div>
+              <div className="flex items-center space-x-1 no-print">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={() => handleExportToPDF(previewEntry)} aria-label="Exportar a PDF">
+                      <FileDown className="h-5 w-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Exportar a PDF</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={handlePrintPreview} aria-label="Imprimir">
+                      <Printer className="h-5 w-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Imprimir</p></TooltipContent>
+                </Tooltip>
+                {/* The default DialogContent X button is used for closing, no need for an additional one here if this is preferred */}
+              </div>
             </DialogHeader>
             
-            <ScrollArea className="flex-grow overflow-y-auto pr-4 -mr-4">
-              <div className="space-y-4 py-2">
+            <ScrollArea className="flex-grow overflow-y-auto px-6 pb-6"> {/* Apply padding here instead of inner div for better scroll */}
+              <div className="space-y-4 pt-4">
                 <div>
                   <Label className="font-semibold text-base">Fuente:</Label>
                   <p className="text-sm ml-1">{previewEntry.fileName ? `Archivo: ${previewEntry.fileName}` : "Texto Manual"}</p>
@@ -554,20 +575,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
               </div>
             </ScrollArea>
           </div>
-
-          <DialogFooter className="mt-auto pt-4 no-print-parent">
-            <Button type="button" variant="outline" onClick={() => handleExportToPDF(previewEntry)} className="no-print">
-              <FileDown className="mr-2 h-4 w-4" />
-              Exportar a PDF
-            </Button>
-            <Button type="button" variant="outline" onClick={handlePrintPreview} className="no-print">
-              <Printer className="mr-2 h-4 w-4" />
-              Imprimir
-            </Button>
-            <DialogClose asChild>
-              <Button type="button" variant="outline" className="no-print">Cerrar</Button>
-            </DialogClose>
-          </DialogFooter>
+          {/* DialogFooter is removed, the main X button from DialogContent handles closing */}
         </DialogContent>
       )}
     </Dialog>
