@@ -37,7 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
-import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle } from "lucide-react";
+import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -57,7 +57,7 @@ const RETRY_DELAY_MS = 30000;
 function isRetryableError(error: any): boolean {
   if (error instanceof Error && error.message) {
     const lowerCaseMessage = error.message.toLowerCase();
-    return lowerCaseMessage.includes("503") || lowerCaseMessage.includes("overloaded") || lowerCaseMessage.includes("service unavailable");
+    return lowerCaseMessage.includes("503") || lowerCaseMessage.includes("overloaded") || lowerCaseMessage.includes("service unavailable") || lowerCaseMessage.includes("rate limit");
   }
   return false;
 }
@@ -90,7 +90,7 @@ export function DiagnosisTool() {
     setFileProcessingError(null);
 
     if (attempt > 1) {
-      toast({ title: "Reintentando Procesamiento", description: `Intentando procesar el archivo de nuevo (intento ${attempt}/${MAX_RETRY_ATTEMPTS})...` });
+      toast({ title: "Reintentando Procesamiento de Archivo", description: `Intentando procesar el archivo de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000 });
     }
 
     if (file.type === "text/plain") {
@@ -121,9 +121,9 @@ export function DiagnosisTool() {
           if (isRetryableError(err) && attempt < MAX_RETRY_ATTEMPTS) {
             toast({
               variant: "default",
-              title: "Problema de Servicio IA",
-              description: `El servicio está ocupado. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
-              duration: RETRY_DELAY_MS + 2000,
+              title: "Problema de Servicio IA (Procesamiento Archivo)",
+              description: `El servicio está ocupado o limitado. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
+              duration: RETRY_DELAY_MS,
             });
             setTimeout(() => processFileForClinicalNotes(file, attempt + 1), RETRY_DELAY_MS);
             return; 
@@ -132,9 +132,9 @@ export function DiagnosisTool() {
           let userMessage = "Ocurrió un error al procesar el documento. Por favor, intente de nuevo.";
            if (err.message && typeof err.message === 'string') {
             if (isRetryableError(err)) {
-              userMessage = `El servicio de IA está sobrecargado (intento ${attempt}/${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
+              userMessage = `El servicio de IA para procesar archivos está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
             } else if (err.message.includes("[GoogleGenerativeAI Error]") || err.message.toLowerCase().includes("error fetching from")) {
-               userMessage = "Hubo un problema de comunicación con el servicio de IA. Verifique su conexión o intente más tarde.";
+               userMessage = "Hubo un problema de comunicación con el servicio de IA al procesar el archivo. Verifique su conexión o intente más tarde.";
             } else {
                userMessage = "No se pudo procesar el documento. Intente con otro archivo o ingrese el texto manualmente.";
             }
@@ -183,6 +183,24 @@ export function DiagnosisTool() {
     toast({ title: "Entrada de archivo limpiada", description: "Puede ingresar texto manualmente o cargar un nuevo archivo." });
   };
 
+  const handleCopyClinicalNotes = async () => {
+    const clinicalTextToCopy = form.getValues("clinicalText");
+    if (!clinicalTextToCopy) {
+      toast({ variant: "destructive", title: "Nada que copiar", description: "El campo de notas clínicas está vacío." });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(clinicalTextToCopy);
+      toast({ title: "¡Texto copiado!", description: "Las notas clínicas han sido copiadas al portapapeles." });
+    } catch (err) {
+      console.error("Error al copiar texto: ", err);
+      toast({ variant: "destructive", title: "Error al copiar", description: "No se pudo copiar el texto al portapapeles." });
+    }
+  };
+
+  let conceptsResult: PromiseSettledResult<ExtractClinicalConceptsOutput> | undefined;
+  let diagnosesResult: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
+
   const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data, attempt = 1) => {
     setIsLoading(true);
     setError(null);
@@ -193,11 +211,8 @@ export function DiagnosisTool() {
     }
     
     if (attempt > 1) {
-      toast({ title: "Reintentando Sugerencias IA", description: `Intentando obtener sugerencias de nuevo (intento ${attempt}/${MAX_RETRY_ATTEMPTS})...` });
+      toast({ title: "Reintentando Sugerencias IA", description: `Intentando obtener sugerencias de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000});
     }
-
-    let conceptsResult: PromiseSettledResult<ExtractClinicalConceptsOutput> | undefined;
-    let diagnosesResult: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
 
     try {
       [conceptsResult, diagnosesResult] = await Promise.allSettled([
@@ -222,11 +237,12 @@ export function DiagnosisTool() {
       if (needsRetry && attempt < MAX_RETRY_ATTEMPTS) {
         toast({
           variant: "default",
-          title: "Problema de Servicio IA",
-          description: `El servicio está ocupado. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos... (${retryableErrorMessage})`,
-          duration: RETRY_DELAY_MS + 2000,
+          title: "Problema de Servicio IA (Sugerencias)",
+          description: `El servicio está ocupado o limitado. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
+          duration: RETRY_DELAY_MS,
         });
         setTimeout(() => {
+          // Asegurarse de que la nueva llamada a onSubmit no reinicie los resultados si es un reintento.
           onSubmit(data, attempt + 1);
         }, RETRY_DELAY_MS);
         return; 
@@ -239,11 +255,11 @@ export function DiagnosisTool() {
         let conceptErrorMessage = "Ocurrió un error desconocido al extraer conceptos.";
         if (conceptsResult.reason instanceof Error && conceptsResult.reason.message) {
            if (isRetryableError(conceptsResult.reason)) {
-                conceptErrorMessage = `El servicio de IA para extraer conceptos está sobrecargado (intento ${attempt}/${MAX_RETRY_ATTEMPTS} fallido). Intente más tarde.`;
+                conceptErrorMessage = `El servicio de IA para extraer conceptos está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Intente más tarde.`;
             } else if (conceptsResult.reason.message.includes("[GoogleGenerativeAI Error]") || conceptsResult.reason.message.toLowerCase().includes("error fetching from")) {
                 conceptErrorMessage = "Problema de comunicación al extraer conceptos con IA. Intente más tarde.";
             } else {
-                conceptErrorMessage = conceptsResult.reason.message;
+                conceptErrorMessage = `Error al extraer conceptos: ${conceptsResult.reason.message}`;
             }
         }
         toast({
@@ -260,14 +276,14 @@ export function DiagnosisTool() {
         let diagnoseErrorMessage = "Ocurrió un error desconocido al sugerir diagnósticos.";
          if (diagnosesResult.reason instanceof Error && diagnosesResult.reason.message) {
             if (isRetryableError(diagnosesResult.reason)) {
-                diagnoseErrorMessage = `El servicio de IA para sugerir diagnósticos está sobrecargado (intento ${attempt}/${MAX_RETRY_ATTEMPTS} fallido). Intente más tarde.`;
+                diagnoseErrorMessage = `El servicio de IA para sugerir diagnósticos está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Intente más tarde.`;
             } else if (diagnosesResult.reason.message.includes("[GoogleGenerativeAI Error]") || diagnosesResult.reason.message.toLowerCase().includes("error fetching from")) {
                 diagnoseErrorMessage = "Problema de comunicación al sugerir diagnósticos con IA. Intente más tarde.";
             } else {
-                 diagnoseErrorMessage = diagnosesResult.reason.message;
+                 diagnoseErrorMessage = `Error al sugerir diagnósticos: ${diagnosesResult.reason.message}`;
             }
         }
-        if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`);
+        if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`); // Solo establece el error si no hay uno ya
          toast({
           variant: "destructive",
           title: "Error en la Sugerencia de Diagnósticos",
@@ -275,9 +291,15 @@ export function DiagnosisTool() {
         });
       }
 
-      if (conceptsResult.status === 'rejected' && diagnosesResult.status === 'rejected') {
+      if (conceptsResult.status === 'rejected' && diagnosesResult.status === 'rejected' && !needsRetry) {
         setError("Ambas operaciones de IA (conceptos y diagnósticos) fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
+      } else if ((conceptsResult.status === 'rejected' && !isRetryableError(conceptsResult.reason)) || (diagnosesResult.status === 'rejected' && !isRetryableError(diagnosesResult.reason))) {
+        // Si alguna operación falló y no es reintentable, establecemos un error general si no hay uno específico más detallado.
+        if (!error && (conceptsResult.status === 'rejected' || diagnosesResult.status === 'rejected')) {
+          setError("Una o más operaciones de IA fallaron. Por favor, revise los mensajes de error individuales.");
+        }
       }
+
 
     } catch (e: any) { 
       console.error(`Error durante el procesamiento IA (intento ${attempt}):`, e);
@@ -287,7 +309,7 @@ export function DiagnosisTool() {
           variant: "default",
           title: "Problema General de Servicio IA",
           description: `El servicio está experimentando problemas. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
-          duration: RETRY_DELAY_MS + 2000,
+          duration: RETRY_DELAY_MS,
         });
         setTimeout(() => {
            onSubmit(data, attempt + 1);
@@ -297,7 +319,7 @@ export function DiagnosisTool() {
 
       if (e.message && typeof e.message === 'string') {
         if (isRetryableError(e)) {
-          generalErrorMessage = `Uno de los servicios de IA está sobrecargado (intento ${attempt}/${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
+          generalErrorMessage = `Uno de los servicios de IA está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
         } else if (e.message.includes("[GoogleGenerativeAI Error]") || e.message.toLowerCase().includes("error fetching from")) {
            generalErrorMessage = "Hubo un problema de comunicación general con los servicios de IA. Verifique su conexión o intente más tarde.";
         } else {
@@ -311,6 +333,7 @@ export function DiagnosisTool() {
         description: generalErrorMessage,
       });
     } finally {
+      // La lógica de reintento se encarga de mantener isLoading activo si es necesario
       const isAnyOperationStillRetrying = (
         ( (conceptsResult?.status === 'rejected' && isRetryableError(conceptsResult.reason)) || 
           (diagnosesResult?.status === 'rejected' && isRetryableError(diagnosesResult.reason)) 
@@ -379,7 +402,27 @@ export function DiagnosisTool() {
                 name="clinicalText"
                 render={({ field }) => (
                   <FormItem>
-                    <ShadcnFormLabel>Notas Clínicas (Editable)</ShadcnFormLabel>
+                    <div className="flex justify-between items-center">
+                      <ShadcnFormLabel>Notas Clínicas (Editable)</ShadcnFormLabel>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleCopyClinicalNotes}
+                            disabled={isProcessingFile || !form.getValues("clinicalText")}
+                            className="h-7 w-7"
+                          >
+                            <ClipboardCopy className="h-4 w-4" />
+                            <span className="sr-only">Copiar Notas Clínicas</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Copiar Notas Clínicas</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <FormControl>
                       <Textarea
                         placeholder="Pegue, escriba las notas clínicas o cárguelas desde un archivo..."
@@ -424,7 +467,7 @@ export function DiagnosisTool() {
       </Card>
 
       <div className="space-y-6">
-        {error && !isLoading && ( 
+        {error && !isLoading && !isProcessingFile && ( 
           <Alert variant="destructive" className="shadow-md rounded-xl">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle className="font-headline">Error de IA</AlertTitle>
@@ -445,7 +488,7 @@ export function DiagnosisTool() {
           </div>
         )}
         
-        {showClinicalConcepts && ((isLoading && !isProcessingFile) || (submitted && !isLoading && !isProcessingFile && !error)) && (
+        {showClinicalConcepts && ((isLoading && !isProcessingFile && !error) || (submitted && !isLoading && !isProcessingFile && !error)) && (
            <Card className="shadow-lg rounded-xl">
             <CardHeader>
               <CardTitle className="font-headline text-2xl flex items-center">
@@ -454,7 +497,7 @@ export function DiagnosisTool() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {isLoading && !isProcessingFile && <Skeleton className="h-20 w-full rounded-md" />}
+              {isLoading && !isProcessingFile && !error && <Skeleton className="h-20 w-full rounded-md" />}
               {!isLoading && extractedConcepts.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {extractedConcepts.map((concept, index) => (
@@ -479,7 +522,7 @@ export function DiagnosisTool() {
               {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}.</CardDescription>}
             </CardHeader>
             <CardContent>
-              {isLoading && !isProcessingFile && (
+              {isLoading && !isProcessingFile && !error && (
                 <div className="space-y-2">
                   {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-8 w-full rounded-md" />)}
                 </div>
@@ -517,7 +560,7 @@ export function DiagnosisTool() {
             </CardContent>
           </Card>
         )}
-         {!isLoading && !submitted && !isProcessingFile && (
+         {!isLoading && !submitted && !isProcessingFile && !error && (
             <Card className="shadow-lg rounded-xl">
                 <CardContent className="pt-6">
                     <p className="text-center text-muted-foreground">
@@ -531,3 +574,4 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
+
