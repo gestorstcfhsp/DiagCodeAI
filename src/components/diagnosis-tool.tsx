@@ -50,9 +50,11 @@ const diagnosisFormSchema = z.object({
 });
 
 type DiagnosisFormValues = z.infer<typeof diagnosisFormSchema>;
+type CodingSystemType = DiagnosisFormValues["codingSystem"];
 
 const MAX_RETRY_ATTEMPTS = 2; 
 const RETRY_DELAY_MS = 30000; 
+const LOCALSTORAGE_CODING_SYSTEM_KEY = 'lastCodingSystem';
 
 function isRetryableError(error: any): boolean {
   if (error instanceof Error && error.message) {
@@ -84,6 +86,15 @@ export function DiagnosisTool() {
       codingSystem: undefined,
     },
   });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedCodingSystem = localStorage.getItem(LOCALSTORAGE_CODING_SYSTEM_KEY) as CodingSystemType | null;
+      if (storedCodingSystem && ["CIE-10", "CIE-11", "CIE-O"].includes(storedCodingSystem)) {
+        form.setValue('codingSystem', storedCodingSystem);
+      }
+    }
+  }, [form]);
 
   const processFileForClinicalNotes = async (file: File, attempt: number) => {
     setIsProcessingFile(true);
@@ -242,7 +253,6 @@ export function DiagnosisTool() {
           duration: RETRY_DELAY_MS,
         });
         setTimeout(() => {
-          // Asegurarse de que la nueva llamada a onSubmit no reinicie los resultados si es un reintento.
           onSubmit(data, attempt + 1);
         }, RETRY_DELAY_MS);
         return; 
@@ -283,7 +293,7 @@ export function DiagnosisTool() {
                  diagnoseErrorMessage = `Error al sugerir diagnósticos: ${diagnosesResult.reason.message}`;
             }
         }
-        if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`); // Solo establece el error si no hay uno ya
+        if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`); 
          toast({
           variant: "destructive",
           title: "Error en la Sugerencia de Diagnósticos",
@@ -294,7 +304,6 @@ export function DiagnosisTool() {
       if (conceptsResult.status === 'rejected' && diagnosesResult.status === 'rejected' && !needsRetry) {
         setError("Ambas operaciones de IA (conceptos y diagnósticos) fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
       } else if ((conceptsResult.status === 'rejected' && !isRetryableError(conceptsResult.reason)) || (diagnosesResult.status === 'rejected' && !isRetryableError(diagnosesResult.reason))) {
-        // Si alguna operación falló y no es reintentable, establecemos un error general si no hay uno específico más detallado.
         if (!error && (conceptsResult.status === 'rejected' || diagnosesResult.status === 'rejected')) {
           setError("Una o más operaciones de IA fallaron. Por favor, revise los mensajes de error individuales.");
         }
@@ -333,7 +342,6 @@ export function DiagnosisTool() {
         description: generalErrorMessage,
       });
     } finally {
-      // La lógica de reintento se encarga de mantener isLoading activo si es necesario
       const isAnyOperationStillRetrying = (
         ( (conceptsResult?.status === 'rejected' && isRetryableError(conceptsResult.reason)) || 
           (diagnosesResult?.status === 'rejected' && isRetryableError(diagnosesResult.reason)) 
@@ -441,7 +449,16 @@ export function DiagnosisTool() {
                 render={({ field }) => (
                   <FormItem>
                     <ShadcnFormLabel>Sistema de Codificación</ShadcnFormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isProcessingFile || isLoading}>
+                    <Select 
+                      onValueChange={(value: CodingSystemType) => {
+                        field.onChange(value);
+                        if (typeof window !== 'undefined') {
+                          localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, value);
+                        }
+                      }} 
+                      value={field.value} 
+                      disabled={isProcessingFile || isLoading}
+                    >
                       <FormControl>
                         <SelectTrigger className="rounded-md shadow-sm focus:ring-primary">
                           <SelectValue placeholder="Seleccione un sistema" />
