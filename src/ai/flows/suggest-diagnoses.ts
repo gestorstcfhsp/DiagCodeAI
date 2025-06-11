@@ -23,7 +23,7 @@ const SuggestDiagnosesOutputSchema = z.object({
   diagnoses: z.array(
     z.object({
       code: z.string().describe('The diagnosis code in the selected coding system.'),
-      description: z.string().describe('The description of the diagnosis.'),
+      description: z.string().describe('The description of the diagnosis in Spanish.'),
       confidence: z.number().describe('Confidence level of the diagnosis suggestion (0-1).'),
     })
   ).describe('A prioritized list of suggested diagnoses.'),
@@ -38,15 +38,15 @@ const suggestDiagnosesPrompt = ai.definePrompt({
   name: 'suggestDiagnosesPrompt',
   input: {schema: SuggestDiagnosesInputSchema},
   output: {schema: SuggestDiagnosesOutputSchema},
-  prompt: `You are an AI assistant specialized in suggesting diagnoses based on clinical text and a selected coding system.
+  prompt: `Eres un asistente de IA especializado en sugerir diagnósticos basados en texto clínico y un sistema de codificación seleccionado.
 
-  Based on the following clinical text:
+  Basado en el siguiente texto clínico:
   {{clinicalText}}
 
-  And the selected coding system: {{codingSystem}}
+  Y el sistema de codificación seleccionado: {{codingSystem}}
 
-  Generate a prioritized list of suggested diagnoses, including the diagnosis code, description, and a confidence level (0-1).
-  Return the diagnoses as a JSON array.
+  Genera una lista priorizada de diagnósticos sugeridos, incluyendo el código de diagnóstico, la descripción EN ESPAÑOL, y un nivel de confianza (0-1).
+  Devuelve los diagnósticos como un array JSON.
   `,
 });
 
