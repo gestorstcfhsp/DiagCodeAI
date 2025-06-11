@@ -178,14 +178,7 @@ export function DiagnosisTool() {
 
     setUploadedFileName(file.name);
     form.setValue('clinicalText', ''); 
-    
-    // Limpiar resultados y errores de IA anteriores
-    setExtractedConcepts([]);
-    setSuggestedDiagnoses([]);
-    setError(null);
-    setSubmitted(false);
-    setShowClinicalConcepts(false);
-    
+        
     await processFileForClinicalNotes(file, 1);
 
     if (fileInputRef.current) {
@@ -634,4 +627,3 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
-
