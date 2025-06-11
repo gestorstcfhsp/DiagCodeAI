@@ -21,7 +21,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Label } from "@/components/ui/label";
+import { Label as ShadcnLabel } from "@/components/ui/label"; // Renamed to avoid conflict
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -33,6 +33,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { extractClinicalConcepts } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
@@ -56,6 +57,7 @@ export function DiagnosisTool() {
   const [suggestedDiagnoses, setSuggestedDiagnoses] = useState<SuggestDiagnosesOutput["diagnoses"]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [showClinicalConcepts, setShowClinicalConcepts] = useState(false);
 
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [fileProcessingError, setFileProcessingError] = useState<string | null>(null);
@@ -113,7 +115,6 @@ export function DiagnosisTool() {
             } else if (err.message.includes("[GoogleGenerativeAI Error]") || err.message.toLowerCase().includes("error fetching from")) {
                userMessage = "Hubo un problema de comunicación con el servicio de IA. Verifique su conexión o intente más tarde.";
             } else {
-               // For other errors, we might still want a generic message or a simplified version of err.message
                userMessage = "No se pudo procesar el documento. Intente con otro archivo o ingrese el texto manualmente.";
             }
           }
@@ -156,6 +157,7 @@ export function DiagnosisTool() {
     setSubmitted(true);
     setExtractedConcepts([]);
     setSuggestedDiagnoses([]);
+    // setShowClinicalConcepts(false); // Mantener la preferencia del usuario o resetear? Por ahora reseteamos.
 
     try {
       const [conceptsResult, diagnosesResult] = await Promise.allSettled([
@@ -210,7 +212,7 @@ export function DiagnosisTool() {
         setError("Ambas operaciones de IA (conceptos y diagnósticos) fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
       } else if (conceptsResult.status === 'rejected') {
         setError("Falló la extracción de conceptos. Revise los mensajes e intente de nuevo.");
-      } else if (diagnosesResult.status === 'rejected' && error === null) { // Solo establece error si no fue por conceptos
+      } else if (diagnosesResult.status === 'rejected' && error === null) { 
         setError("Falló la sugerencia de diagnósticos. Revise los mensajes e intente de nuevo.");
       }
 
@@ -252,7 +254,7 @@ export function DiagnosisTool() {
         <CardContent>
           <div className="space-y-4 mb-6">
             <div>
-              <Label htmlFor="file-upload-input">Cargar Documento (Opcional)</Label>
+              <ShadcnLabel htmlFor="file-upload-input">Cargar Documento (Opcional)</ShadcnLabel>
               <div className="flex items-center space-x-2 mt-1">
                 <Button id="file-upload-button" type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isProcessingFile} className="flex-grow justify-start text-left">
                   {isProcessingFile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
@@ -347,7 +349,20 @@ export function DiagnosisTool() {
           </Alert>
         )}
 
-        {(isLoading || (submitted && extractedConcepts.length > 0) || (submitted && !isLoading && extractedConcepts.length === 0 && !error && !isProcessingFile)) && (
+        {submitted && !isLoading && !isProcessingFile && !error && (
+          <div className="flex items-center space-x-2 mt-4 p-4 bg-card shadow-lg rounded-xl border">
+            <Switch
+              id="show-concepts-switch"
+              checked={showClinicalConcepts}
+              onCheckedChange={setShowClinicalConcepts}
+            />
+            <ShadcnLabel htmlFor="show-concepts-switch" className="text-sm font-medium">
+              Mostrar Conceptos Clínicos Extraídos
+            </ShadcnLabel>
+          </div>
+        )}
+        
+        {showClinicalConcepts && ((isLoading && !isProcessingFile) || (submitted && !isLoading && !isProcessingFile && !error)) && (
            <Card className="shadow-lg rounded-xl">
             <CardHeader>
               <CardTitle className="font-headline text-2xl flex items-center">
@@ -383,9 +398,9 @@ export function DiagnosisTool() {
             <CardContent>
               {isLoading && !isProcessingFile && (
                 <div className="space-y-2">
+                  <Skeleton className="h-8 w-3/4 rounded-md" />
                   <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
+                  <Skeleton className="h-8 w-5/6 rounded-md" />
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
@@ -393,7 +408,7 @@ export function DiagnosisTool() {
                   {suggestedDiagnoses.map((diag, index) => (
                     <Card key={index} className="bg-card shadow-sm rounded-lg overflow-hidden p-3">
                        <div className="flex justify-between items-center w-full">
-                        <div className="flex items-baseline overflow-hidden min-w-0">
+                        <div className="flex items-baseline overflow-hidden min-w-0 mr-2">
                           <span className="font-medium text-sm text-primary mr-2 shrink-0">{diag.code}</span>
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -406,7 +421,7 @@ export function DiagnosisTool() {
                         </div>
                         <Badge
                           variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"}
-                          className="text-xs px-2 py-0.5 ml-3 shrink-0 whitespace-nowrap"
+                          className="text-xs px-2 py-0.5 ml-auto shrink-0 whitespace-nowrap"
                         >
                           {(diag.confidence * 100).toFixed(0)}%
                         </Badge>
@@ -435,5 +450,3 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
-
-    
