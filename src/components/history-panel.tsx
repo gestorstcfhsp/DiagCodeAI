@@ -2,7 +2,7 @@
 // src/components/history-panel.tsx
 "use client";
 
-import { useRef } from "react";
+import { useState, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type HistoryEntry } from "@/lib/db";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -30,6 +32,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+  DialogTrigger
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
 interface HistoryPanelProps {
@@ -43,6 +55,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
     [] // dependencies
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewEntry, setPreviewEntry] = useState<HistoryEntry | null>(null);
 
   const handleDeleteEntry = async (id?: number) => {
     if (id === undefined) return;
@@ -136,8 +149,9 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                 typeof diag.code === 'string' &&
                 typeof diag.description === 'string' &&
                 typeof diag.confidence === 'number' &&
-                typeof diag.id === 'string' // Asegurar que el id de UI existe
-                // isPrincipal e isSelected son opcionales, no necesitan validación estricta aquí si pueden ser undefined
+                typeof diag.id === 'string' && // id de UIDiagnosis
+                (typeof diag.isPrincipal === 'boolean' || diag.isPrincipal === undefined) &&
+                (typeof diag.isSelected === 'boolean' || diag.isSelected === undefined)
               )
           )
         ) {
@@ -148,14 +162,19 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
           });
           return;
         }
-
-        // Confirmation is handled by the AlertDialogTrigger for "Importar" button itself
-        await db.history.clear(); // Clear existing history
-        // Remove 'id' property so Dexie auto-generates new ones for HistoryEntry
+        
+        await db.history.clear(); 
         const entriesToAdd = importedEntries.map(entry => {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { id, ...rest } = entry; 
-            return rest;
+            return {
+              ...rest,
+              suggestedDiagnoses: entry.suggestedDiagnoses.map(d => ({
+                ...d,
+                isPrincipal: d.isPrincipal ?? false,
+                isSelected: d.isSelected ?? false,
+              }))
+            };
         });
         await db.history.bulkAdd(entriesToAdd);
         
@@ -172,7 +191,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
         });
       } finally {
         if (fileInputRef.current) {
-          fileInputRef.current.value = ""; // Reset file input
+          fileInputRef.current.value = ""; 
         }
       }
     };
@@ -199,168 +218,263 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
 
 
   return (
-    <Card className="shadow-lg rounded-xl">
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-                <CardTitle className="font-headline text-2xl flex items-center">
-                    <History className="mr-2 h-6 w-6 text-primary" />
-                    Historial de Trabajo
-                </CardTitle>
-                <CardDescription>Revise, cargue, importe o exporte sus análisis.</CardDescription>
-            </div>
-            <div className="flex flex-wrap gap-2">
-                 <input
-                    type="file"
-                    accept=".json"
-                    ref={fileInputRef}
-                    className="hidden"
-                    onChange={handleImportFileSelect}
-                 />
-                <AlertDialog>
+    <Dialog onOpenChange={(isOpen) => { if(!isOpen) setPreviewEntry(null); }}>
+      <Card className="shadow-lg rounded-xl">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                  <CardTitle className="font-headline text-2xl flex items-center">
+                      <History className="mr-2 h-6 w-6 text-primary" />
+                      Historial de Trabajo
+                  </CardTitle>
+                  <CardDescription>Revise, cargue, importe o exporte sus análisis.</CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                  <input
+                      type="file"
+                      accept=".json"
+                      ref={fileInputRef}
+                      className="hidden"
+                      onChange={handleImportFileSelect}
+                  />
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm">
+                          <Upload className="mr-2 h-4 w-4" />
+                          Importar JSON
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Importar historial desde archivo JSON?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Esta acción reemplazará su historial actual con el contenido del archivo seleccionado. ¿Desea continuar?
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => fileInputRef.current?.click()} className="bg-primary hover:bg-primary/90">
+                          Seleccionar Archivo
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+
+                  <Button variant="outline" size="sm" onClick={handleExportHistory} disabled={!historyEntries || historyEntries.length === 0}>
+                      <Download className="mr-2 h-4 w-4" />
+                      Exportar JSON
+                  </Button>
+                  <AlertDialog>
                   <AlertDialogTrigger asChild>
-                     <Button variant="outline" size="sm">
-                        <Upload className="mr-2 h-4 w-4" />
-                        Importar JSON
-                    </Button>
+                      <Button variant="destructive" size="sm" disabled={!historyEntries || historyEntries.length === 0}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Borrar Todo
+                      </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>¿Importar historial desde archivo JSON?</AlertDialogTitle>
+                      <AlertDialogHeader>
+                      <AlertDialogTitle>¿Está seguro de borrar todo el historial?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Esta acción reemplazará su historial actual con el contenido del archivo seleccionado. ¿Desea continuar?
+                          Esta acción no se puede deshacer. Se eliminarán permanentemente todas las entradas del historial.
                       </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
                       <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => fileInputRef.current?.click()} className="bg-primary hover:bg-primary/90">
-                        Seleccionar Archivo
+                      <AlertDialogAction onClick={handleClearAllHistory} className="bg-destructive hover:bg-destructive/90">
+                          Borrar Todo
                       </AlertDialogAction>
-                    </AlertDialogFooter>
+                      </AlertDialogFooter>
                   </AlertDialogContent>
-                </AlertDialog>
-
-                <Button variant="outline" size="sm" onClick={handleExportHistory} disabled={!historyEntries || historyEntries.length === 0}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Exportar JSON
-                </Button>
-                <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm" disabled={!historyEntries || historyEntries.length === 0}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Borrar Todo
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                    <AlertDialogTitle>¿Está seguro de borrar todo el historial?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        Esta acción no se puede deshacer. Se eliminarán permanentemente todas las entradas del historial.
-                    </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleClearAllHistory} className="bg-destructive hover:bg-destructive/90">
-                        Borrar Todo
-                    </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-                </AlertDialog>
-            </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {historyEntries.length === 0 ? (
-            <p className="text-muted-foreground text-center py-4">
-                No hay entradas en el historial todavía. Los resultados de sus análisis aparecerán aquí.
-            </p>
-        ) : (
-        <ScrollArea className="h-[400px] pr-3">
-          <div className="space-y-4">
-            {historyEntries.map((entry) => (
-              <Card key={entry.id} className="bg-card shadow-sm rounded-lg">
-                <CardHeader className="pb-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle className="text-base font-medium flex items-center">
-                        {entry.fileName ? (
-                          <UploadCloud className="mr-2 h-5 w-5 text-muted-foreground flex-shrink-0" />
-                        ) : (
-                          <FileText className="mr-2 h-5 w-5 text-muted-foreground flex-shrink-0" />
-                        )}
-                        <span className="truncate" title={entry.fileName || "Texto Manual"}>
-                          {entry.fileName || "Texto Manual"}
-                        </span>
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        {format(new Date(entry.timestamp), "PPpp", { locale: es })}
-                      </CardDescription>
-                    </div>
-                     <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                                <Trash2 className="h-4 w-4" />
-                                <span className="sr-only">Eliminar entrada</span>
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>¿Eliminar esta entrada del historial?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                            Esta acción no se puede deshacer.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteEntry(entry.id)} className="bg-destructive hover:bg-destructive/90">
-                            Eliminar
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-sm space-y-2 pb-3">
-                  <div>
-                    <span className="font-semibold">Sistema:</span>{" "}
-                    <Badge variant="secondary">{entry.codingSystem}</Badge>
-                  </div>
-                  <p className="line-clamp-2">
-                    <span className="font-semibold">Texto Clínico:</span>{" "}
-                    {entry.clinicalText}
-                  </p>
-                  <div>
-                    <span className="font-semibold">Resultados:</span>
-                    <ul className="list-disc list-inside ml-1 text-xs">
-                      <li>{entry.extractedConcepts.length} conceptos extraídos</li>
-                      <li>
-                        {entry.suggestedDiagnoses.length} diagnósticos sugeridos
-                        {entry.suggestedDiagnoses.some(d => d.isPrincipal) && (
-                           <Star className="ml-1 h-3 w-3 inline-block text-amber-500 fill-amber-500" />
-                        )}
-                         {entry.suggestedDiagnoses.filter(d => d.isSelected).length > 0 && (
-                           <span className="ml-1">({entry.suggestedDiagnoses.filter(d => d.isSelected).length} validados <CheckSquare className="ml-1 h-3 w-3 inline-block text-green-600" />)</span>
-                        )}
-                      </li>
-                    </ul>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    onClick={() => onLoadHistory(entry)}
-                    className="w-full"
-                    size="sm"
-                  >
-                    <RotateCcw className="mr-2 h-4 w-4" />
-                    Cargar en Formulario
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
+                  </AlertDialog>
+              </div>
           </div>
-        </ScrollArea>
-        )}
-      </CardContent>
-    </Card>
+        </CardHeader>
+        <CardContent>
+          {historyEntries.length === 0 ? (
+              <p className="text-muted-foreground text-center py-4">
+                  No hay entradas en el historial todavía. Los resultados de sus análisis aparecerán aquí.
+              </p>
+          ) : (
+          <ScrollArea className="h-[400px] pr-3">
+            <div className="space-y-4">
+              {historyEntries.map((entry) => (
+                <Card key={entry.id} className="bg-card shadow-sm rounded-lg">
+                  <CardHeader className="pb-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="text-base font-medium flex items-center">
+                          {entry.fileName ? (
+                            <UploadCloud className="mr-2 h-5 w-5 text-muted-foreground flex-shrink-0" />
+                          ) : (
+                            <FileText className="mr-2 h-5 w-5 text-muted-foreground flex-shrink-0" />
+                          )}
+                          <span className="truncate" title={entry.fileName || "Texto Manual"}>
+                            {entry.fileName || "Texto Manual"}
+                          </span>
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          {format(new Date(entry.timestamp), "PPpp", { locale: es })}
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-primary"
+                            onClick={() => setPreviewEntry(entry)}
+                          >
+                            <Eye className="h-4 w-4" />
+                            <span className="sr-only">Ver detalles</span>
+                          </Button>
+                        </DialogTrigger>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="sr-only">Eliminar entrada</span>
+                              </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                          <AlertDialogHeader>
+                              <AlertDialogTitle>¿Eliminar esta entrada del historial?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                              Esta acción no se puede deshacer.
+                              </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteEntry(entry.id)} className="bg-destructive hover:bg-destructive/90">
+                              Eliminar
+                              </AlertDialogAction>
+                          </AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-sm space-y-2 pb-3">
+                    <div>
+                      <span className="font-semibold">Sistema:</span>{" "}
+                      <Badge variant="secondary">{entry.codingSystem}</Badge>
+                    </div>
+                    <p className="line-clamp-2">
+                      <span className="font-semibold">Texto Clínico:</span>{" "}
+                      {entry.clinicalText}
+                    </p>
+                    <div>
+                      <span className="font-semibold">Resultados:</span>
+                      <ul className="list-disc list-inside ml-1 text-xs">
+                        <li>{entry.extractedConcepts.length} conceptos extraídos</li>
+                        <li>
+                          {entry.suggestedDiagnoses.length} diagnósticos sugeridos
+                          {entry.suggestedDiagnoses.some(d => d.isPrincipal) && (
+                            <Star className="ml-1 h-3 w-3 inline-block text-amber-500 fill-amber-500" />
+                          )}
+                          {entry.suggestedDiagnoses.filter(d => d.isSelected).length > 0 && (
+                            <span className="ml-1">({entry.suggestedDiagnoses.filter(d => d.isSelected).length} validados <CheckSquare className="ml-1 h-3 w-3 inline-block text-green-600" />)</span>
+                          )}
+                        </li>
+                      </ul>
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button
+                      onClick={() => {
+                        onLoadHistory(entry);
+                        toast({ title: "Historial Cargado", description: "La entrada del historial se ha cargado en el formulario."});
+                      }}
+                      className="w-full"
+                      size="sm"
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Cargar en Formulario
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+
+      {previewEntry && (
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="font-headline text-xl">Detalle de la Entrada del Historial</DialogTitle>
+            <DialogDescription>
+              {format(new Date(previewEntry.timestamp), "PPPPpppp", { locale: es })}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <ScrollArea className="flex-grow overflow-y-auto pr-4 -mr-4">
+            <div className="space-y-4 py-2">
+              <div>
+                <Label className="font-semibold text-base">Fuente:</Label>
+                <p className="text-sm ml-1">{previewEntry.fileName ? `Archivo: ${previewEntry.fileName}` : "Texto Manual"}</p>
+              </div>
+              <Separator />
+              <div>
+                <Label className="font-semibold text-base">Sistema de Codificación:</Label>
+                <p className="text-sm ml-1">{previewEntry.codingSystem}</p>
+              </div>
+              <Separator />
+              <div>
+                <Label className="font-semibold text-base">Notas Clínicas:</Label>
+                <ScrollArea className="h-[150px] w-full rounded-md border p-3 mt-1 bg-secondary/30">
+                  <p className="text-sm whitespace-pre-wrap">{previewEntry.clinicalText}</p>
+                </ScrollArea>
+              </div>
+              <Separator />
+              <div>
+                <Label className="font-semibold text-base">Conceptos Clínicos Extraídos ({previewEntry.extractedConcepts.length}):</Label>
+                {previewEntry.extractedConcepts.length > 0 ? (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {previewEntry.extractedConcepts.map((concept, index) => (
+                      <Badge key={index} variant="secondary" className="text-xs">{concept}</Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground ml-1">No se extrajeron conceptos.</p>
+                )}
+              </div>
+              <Separator />
+              <div>
+                <Label className="font-semibold text-base">Diagnósticos Sugeridos ({previewEntry.suggestedDiagnoses.length}):</Label>
+                {previewEntry.suggestedDiagnoses.length > 0 ? (
+                  <div className="space-y-1.5 mt-1">
+                    {previewEntry.suggestedDiagnoses.map((diag) => (
+                      <Card key={diag.id} className={`p-2 text-sm ${diag.isPrincipal ? 'border-primary' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            {diag.isPrincipal && <Star className="h-4 w-4 mr-2 text-primary fill-primary" />}
+                            {diag.isSelected && <CheckSquare className="h-4 w-4 mr-2 text-green-600" />}
+                            <span className="font-medium mr-2 text-primary">{diag.code}</span>
+                            <span className="text-card-foreground">{diag.description}</span>
+                          </div>
+                          <Badge variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"} className="text-xs ml-2">
+                            {(diag.confidence * 100).toFixed(0)}%
+                          </Badge>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground ml-1">No se sugirieron diagnósticos.</p>
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+
+          <DialogFooter className="mt-auto pt-4">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cerrar</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      )}
+    </Dialog>
   );
 }
+
