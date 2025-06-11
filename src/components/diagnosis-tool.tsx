@@ -106,10 +106,20 @@ export function DiagnosisTool() {
           toast({ title: "Documento procesado", description: "El texto extraído ha sido añadido a las notas clínicas." });
         } catch (err: any) {
           console.error("Error procesando documento:", err);
-          const message = err.message || "Ocurrió un error al procesar el documento.";
-          setFileProcessingError(message);
-          toast({ variant: "destructive", title: "Error de Procesamiento de Documento", description: message });
-          form.setValue("clinicalText", `Error al procesar el archivo ${file.name}. Detalles: ${message}. Por favor, ingrese el texto manualmente o intente con otro archivo.`);
+          let userMessage = "Ocurrió un error al procesar el documento. Por favor, intente de nuevo.";
+          if (err.message && typeof err.message === 'string') {
+            if (err.message.includes("503") || err.message.toLowerCase().includes("overloaded")) {
+              userMessage = "El servicio de IA está sobrecargado actualmente. Por favor, intente de nuevo más tarde.";
+            } else if (err.message.includes("[GoogleGenerativeAI Error]") || err.message.toLowerCase().includes("error fetching from")) {
+               userMessage = "Hubo un problema de comunicación con el servicio de IA. Verifique su conexión o intente más tarde.";
+            } else {
+               // For other errors, we might still want a generic message or a simplified version of err.message
+               userMessage = "No se pudo procesar el documento. Intente con otro archivo o ingrese el texto manualmente.";
+            }
+          }
+          setFileProcessingError(userMessage);
+          toast({ variant: "destructive", title: "Error de Procesamiento de Documento", description: userMessage });
+          form.setValue("clinicalText", `Error al procesar el archivo ${file.name}. Detalles: ${userMessage}. Por favor, ingrese el texto manualmente o intente con otro archivo.`);
         } finally {
           setIsProcessingFile(false);
         }
@@ -157,10 +167,20 @@ export function DiagnosisTool() {
         setExtractedConcepts(conceptsResult.value.clinicalConcepts || []);
       } else if (conceptsResult.status === 'rejected') {
         console.error("Error extrayendo conceptos:", conceptsResult.reason);
+        let conceptErrorMessage = "Ocurrió un error desconocido al extraer conceptos.";
+        if (conceptsResult.reason instanceof Error && conceptsResult.reason.message) {
+            if (conceptsResult.reason.message.includes("503") || conceptsResult.reason.message.toLowerCase().includes("overloaded")) {
+                conceptErrorMessage = "El servicio de IA para extraer conceptos está sobrecargado. Intente más tarde.";
+            } else if (conceptsResult.reason.message.includes("[GoogleGenerativeAI Error]") || conceptsResult.reason.message.toLowerCase().includes("error fetching from")) {
+                conceptErrorMessage = "Problema de comunicación al extraer conceptos con IA. Intente más tarde.";
+            } else {
+                conceptErrorMessage = conceptsResult.reason.message;
+            }
+        }
         toast({
           variant: "destructive",
           title: "Error en la Extracción de Conceptos",
-          description: (conceptsResult.reason as Error)?.message || "Ocurrió un error desconocido.",
+          description: conceptErrorMessage,
         });
       }
       
@@ -168,26 +188,50 @@ export function DiagnosisTool() {
         setSuggestedDiagnoses(diagnosesResult.value.diagnoses || []);
       } else if (diagnosesResult.status === 'rejected') {
         console.error("Error sugiriendo diagnósticos:", diagnosesResult.reason);
-        setError(`Error al sugerir diagnósticos: ${(diagnosesResult.reason as Error)?.message || "Error desconocido"}`);
+        let diagnoseErrorMessage = "Ocurrió un error desconocido al sugerir diagnósticos.";
+         if (diagnosesResult.reason instanceof Error && diagnosesResult.reason.message) {
+            if (diagnosesResult.reason.message.includes("503") || diagnosesResult.reason.message.toLowerCase().includes("overloaded")) {
+                diagnoseErrorMessage = "El servicio de IA para sugerir diagnósticos está sobrecargado. Intente más tarde.";
+            } else if (diagnosesResult.reason.message.includes("[GoogleGenerativeAI Error]") || diagnosesResult.reason.message.toLowerCase().includes("error fetching from")) {
+                diagnoseErrorMessage = "Problema de comunicación al sugerir diagnósticos con IA. Intente más tarde.";
+            } else {
+                 diagnoseErrorMessage = diagnosesResult.reason.message;
+            }
+        }
+        setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`);
          toast({
           variant: "destructive",
           title: "Error en la Sugerencia de Diagnósticos",
-          description: (diagnosesResult.reason as Error)?.message || "Ocurrió un error desconocido.",
+          description: diagnoseErrorMessage,
         });
       }
 
       if (conceptsResult.status === 'rejected' && diagnosesResult.status === 'rejected') {
-        setError("Ambas operaciones de IA fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
+        setError("Ambas operaciones de IA (conceptos y diagnósticos) fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
+      } else if (conceptsResult.status === 'rejected') {
+        setError("Falló la extracción de conceptos. Revise los mensajes e intente de nuevo.");
+      } else if (diagnosesResult.status === 'rejected' && error === null) { // Solo establece error si no fue por conceptos
+        setError("Falló la sugerencia de diagnósticos. Revise los mensajes e intente de nuevo.");
       }
+
 
     } catch (e: any) {
       console.error("Error durante el procesamiento IA:", e);
-      const errorMessage = e.message || "Ocurrió un error inesperado. Por favor, intente de nuevo.";
-      setError(errorMessage);
+      let generalErrorMessage = "Ocurrió un error inesperado durante el procesamiento con IA. Por favor, intente de nuevo.";
+      if (e.message && typeof e.message === 'string') {
+        if (e.message.includes("503") || e.message.toLowerCase().includes("overloaded")) {
+          generalErrorMessage = "Uno de los servicios de IA está sobrecargado. Por favor, intente de nuevo más tarde.";
+        } else if (e.message.includes("[GoogleGenerativeAI Error]") || e.message.toLowerCase().includes("error fetching from")) {
+           generalErrorMessage = "Hubo un problema de comunicación general con los servicios de IA. Verifique su conexión o intente más tarde.";
+        } else {
+           generalErrorMessage = e.message;
+        }
+      }
+      setError(generalErrorMessage);
       toast({
         variant: "destructive",
-        title: "Error de Procesamiento",
-        description: errorMessage,
+        title: "Error de Procesamiento IA",
+        description: generalErrorMessage,
       });
     } finally {
       setIsLoading(false);
@@ -208,7 +252,7 @@ export function DiagnosisTool() {
         <CardContent>
           <div className="space-y-4 mb-6">
             <div>
-              <Label htmlFor="file-upload-button">Cargar Documento (Opcional)</Label>
+              <Label htmlFor="file-upload-input">Cargar Documento (Opcional)</Label>
               <div className="flex items-center space-x-2 mt-1">
                 <Button id="file-upload-button" type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isProcessingFile} className="flex-grow justify-start text-left">
                   {isProcessingFile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
@@ -237,7 +281,7 @@ export function DiagnosisTool() {
             {fileProcessingError && (
               <Alert variant="destructive" className="mt-2">
                 <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Error de Archivo</AlertTitle>
+                <AlertTitle>Error de Archivo o Procesamiento</AlertTitle>
                 <AlertDescription>{fileProcessingError}</AlertDescription>
               </Alert>
             )}
@@ -334,14 +378,14 @@ export function DiagnosisTool() {
                 <Stethoscope className="mr-2 h-6 w-6 text-primary" />
                 Diagnósticos Sugeridos
               </CardTitle>
-              {suggestedDiagnoses.length > 0 && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}.</CardDescription>}
+              {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}.</CardDescription>}
             </CardHeader>
             <CardContent>
               {isLoading && !isProcessingFile && (
                 <div className="space-y-2">
-                  <Skeleton className="h-10 w-full rounded-md" />
-                  <Skeleton className="h-10 w-full rounded-md" />
-                  <Skeleton className="h-10 w-full rounded-md" />
+                  <Skeleton className="h-8 w-full rounded-md" />
+                  <Skeleton className="h-8 w-full rounded-md" />
+                  <Skeleton className="h-8 w-full rounded-md" />
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
