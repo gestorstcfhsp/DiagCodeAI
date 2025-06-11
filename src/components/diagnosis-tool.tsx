@@ -38,6 +38,8 @@ import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/sugges
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
 import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
 
 const diagnosisFormSchema = z.object({
   clinicalText: z.string().min(20, "El texto clínico debe tener al menos 20 caracteres."),
@@ -193,6 +195,7 @@ export function DiagnosisTool() {
   };
 
   return (
+    <TooltipProvider>
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <Card className="lg:col-span-1 shadow-lg rounded-xl">
         <CardHeader>
@@ -218,6 +221,7 @@ export function DiagnosisTool() {
                   accept="image/*,application/pdf,.txt"
                   className="hidden"
                   disabled={isProcessingFile}
+                  id="file-upload-input"
                 />
               </div>
             </div>
@@ -334,29 +338,35 @@ export function DiagnosisTool() {
             </CardHeader>
             <CardContent>
               {isLoading && !isProcessingFile && (
-                <div className="space-y-4">
-                  <Skeleton className="h-24 w-full rounded-md" />
-                  <Skeleton className="h-24 w-full rounded-md" />
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full rounded-md" />
+                  <Skeleton className="h-10 w-full rounded-md" />
+                  <Skeleton className="h-10 w-full rounded-md" />
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
-                <div className="space-y-4">
+                <div className="space-y-2">
                   {suggestedDiagnoses.map((diag, index) => (
-                    <Card key={index} className="bg-card shadow-sm rounded-lg overflow-hidden">
-                      <CardHeader className="p-4">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <CardTitle className="font-headline text-lg text-primary">{diag.code}</CardTitle>
-                            <CardDescription className="text-sm mt-0.5">{diag.description}</CardDescription>
-                          </div>
-                          <Badge
-                            variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"}
-                            className="text-xs px-2 py-0.5 ml-3 shrink-0"
-                          >
-                            {(diag.confidence * 100).toFixed(0)}%
-                          </Badge>
+                    <Card key={index} className="bg-card shadow-sm rounded-lg overflow-hidden p-3">
+                       <div className="flex justify-between items-center w-full">
+                        <div className="flex items-baseline overflow-hidden min-w-0">
+                          <span className="font-medium text-sm text-primary mr-2 shrink-0">{diag.code}</span>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <p className="text-sm text-card-foreground truncate" title={diag.description}>{diag.description}</p>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              <p>{diag.description}</p>
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
-                      </CardHeader>
+                        <Badge
+                          variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"}
+                          className="text-xs px-2 py-0.5 ml-3 shrink-0 whitespace-nowrap"
+                        >
+                          {(diag.confidence * 100).toFixed(0)}%
+                        </Badge>
+                      </div>
                     </Card>
                   ))}
                 </div>
@@ -378,5 +388,8 @@ export function DiagnosisTool() {
         )}
       </div>
     </div>
+    </TooltipProvider>
   );
 }
+
+    
