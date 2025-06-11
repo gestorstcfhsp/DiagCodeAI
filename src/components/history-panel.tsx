@@ -1,3 +1,4 @@
+
 // src/components/history-panel.tsx
 "use client";
 
@@ -15,7 +16,7 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download } from "lucide-react";
+import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -130,7 +131,14 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
               typeof entry.clinicalText === "string" &&
               typeof entry.codingSystem === "string" &&
               Array.isArray(entry.extractedConcepts) &&
-              Array.isArray(entry.suggestedDiagnoses)
+              Array.isArray(entry.suggestedDiagnoses) &&
+              entry.suggestedDiagnoses.every(diag => 
+                typeof diag.code === 'string' &&
+                typeof diag.description === 'string' &&
+                typeof diag.confidence === 'number' &&
+                typeof diag.id === 'string' // Asegurar que el id de UI existe
+                // isPrincipal e isSelected son opcionales, no necesitan validación estricta aquí si pueden ser undefined
+              )
           )
         ) {
           toast({
@@ -143,9 +151,10 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
 
         // Confirmation is handled by the AlertDialogTrigger for "Importar" button itself
         await db.history.clear(); // Clear existing history
-        // Remove 'id' property so Dexie auto-generates new ones
+        // Remove 'id' property so Dexie auto-generates new ones for HistoryEntry
         const entriesToAdd = importedEntries.map(entry => {
-            const { id, ...rest } = entry;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { id, ...rest } = entry; 
             return rest;
         });
         await db.history.bulkAdd(entriesToAdd);
@@ -324,7 +333,15 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                     <span className="font-semibold">Resultados:</span>
                     <ul className="list-disc list-inside ml-1 text-xs">
                       <li>{entry.extractedConcepts.length} conceptos extraídos</li>
-                      <li>{entry.suggestedDiagnoses.length} diagnósticos sugeridos</li>
+                      <li>
+                        {entry.suggestedDiagnoses.length} diagnósticos sugeridos
+                        {entry.suggestedDiagnoses.some(d => d.isPrincipal) && (
+                           <Star className="ml-1 h-3 w-3 inline-block text-amber-500 fill-amber-500" />
+                        )}
+                         {entry.suggestedDiagnoses.filter(d => d.isSelected).length > 0 && (
+                           <span className="ml-1">({entry.suggestedDiagnoses.filter(d => d.isSelected).length} validados <CheckSquare className="ml-1 h-3 w-3 inline-block text-green-600" />)</span>
+                        )}
+                      </li>
                     </ul>
                   </div>
                 </CardContent>
@@ -347,4 +364,3 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
     </Card>
   );
 }
-

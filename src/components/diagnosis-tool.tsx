@@ -34,13 +34,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
-import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy } from "lucide-react";
+import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { db, type HistoryEntry } from "@/lib/db";
+import { db, type HistoryEntry, type UIDiagnosis } from "@/lib/db";
 import { HistoryPanel } from "@/components/history-panel";
 
 
@@ -69,7 +70,7 @@ function isRetryableError(error: any): boolean {
 export function DiagnosisTool() {
   const [isLoading, setIsLoading] = useState(false);
   const [extractedConcepts, setExtractedConcepts] = useState<string[]>([]);
-  const [suggestedDiagnoses, setSuggestedDiagnoses] = useState<SuggestDiagnosesOutput["diagnoses"]>([]);
+  const [suggestedDiagnoses, setSuggestedDiagnoses] = useState<UIDiagnosis[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [showClinicalConcepts, setShowClinicalConcepts] = useState(false);
@@ -101,6 +102,12 @@ export function DiagnosisTool() {
   const processFileForClinicalNotes = async (file: File, attempt: number) => {
     setIsProcessingFile(true);
     setFileProcessingError(null);
+    // Limpiar resultados anteriores al cargar nuevo archivo
+    setExtractedConcepts([]);
+    setSuggestedDiagnoses([]);
+    setError(null);
+    setSubmitted(false);
+    setShowClinicalConcepts(false);
 
     if (attempt > 1) {
       toast({ title: "Reintentando Procesamiento de Archivo", description: `Intentando procesar el archivo de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000 });
@@ -216,7 +223,12 @@ export function DiagnosisTool() {
     form.setValue("codingSystem", entry.codingSystem);
     setUploadedFileName(entry.fileName || null);
     setExtractedConcepts(entry.extractedConcepts);
-    setSuggestedDiagnoses(entry.suggestedDiagnoses);
+    // Asegurarse de que los diagnósticos cargados tengan el ID único para la UI si no lo tuvieran
+    // (aunque el guardado ya debería incluirlo)
+    setSuggestedDiagnoses(entry.suggestedDiagnoses.map(diag => ({
+        ...diag,
+        id: diag.id || `${diag.code}-${Date.now()}-${Math.random()}` // Fallback si no tiene id
+    })));
     setSubmitted(true);
     setError(null);
     setShowClinicalConcepts(entry.extractedConcepts.length > 0); 
@@ -224,8 +236,55 @@ export function DiagnosisTool() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleSetPrincipalDiagnosis = (diagnosisId: string) => {
+    setSuggestedDiagnoses(prevDiagnoses => {
+      const newDiagnoses = prevDiagnoses.map(diag => ({
+        ...diag,
+        isPrincipal: diag.id === diagnosisId,
+      }));
+      const principal = newDiagnoses.find(d => d.isPrincipal);
+      if (principal) {
+        return [principal, ...newDiagnoses.filter(d => d.id !== principal.id)];
+      }
+      return newDiagnoses;
+    });
+  };
+
+  const handleToggleSelectedDiagnosis = (diagnosisId: string) => {
+    setSuggestedDiagnoses(prevDiagnoses =>
+      prevDiagnoses.map(diag =>
+        diag.id === diagnosisId ? { ...diag, isSelected: !diag.isSelected } : diag
+      )
+    );
+  };
+
+  const handleSaveToHistory = async () => {
+    const data = form.getValues();
+    if (!submitted || isLoading || error) {
+      toast({ variant: "destructive", title: "No se puede guardar", description: "Debe haber resultados válidos para guardar en el historial."});
+      return;
+    }
+    try {
+      const historyEntry: HistoryEntry = {
+        timestamp: Date.now(),
+        clinicalText: data.clinicalText,
+        codingSystem: data.codingSystem,
+        extractedConcepts: extractedConcepts, // Usar el estado actual
+        suggestedDiagnoses: suggestedDiagnoses, // Usar el estado actual con isPrincipal/isSelected
+        fileName: uploadedFileName,
+      };
+      await db.history.add(historyEntry);
+      toast({ title: "Guardado en Historial", description: "El análisis actual se ha guardado en el historial."});
+    } catch (dbError) {
+      console.error("Error saving to history:", dbError);
+      toast({ variant: "destructive", title: "Error de Historial", description: "No se pudo guardar el análisis en el historial."});
+    }
+  };
+
+
   let conceptsResult: PromiseSettledResult<ExtractClinicalConceptsOutput> | undefined;
-  let diagnosesResult: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
+  let diagnosesResultFromAI: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
+
 
   const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data, attempt = 1) => {
     setIsLoading(true);
@@ -240,11 +299,8 @@ export function DiagnosisTool() {
       toast({ title: "Reintentando Sugerencias IA", description: `Intentando obtener sugerencias de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000});
     }
 
-    let currentExtractedConcepts: string[] = [];
-    let currentSuggestedDiagnoses: SuggestDiagnosesOutput['diagnoses'] = [];
-
     try {
-      [conceptsResult, diagnosesResult] = await Promise.allSettled([
+      [conceptsResult, diagnosesResultFromAI] = await Promise.allSettled([
         extractClinicalConcepts({ documentText: data.clinicalText }),
         suggestDiagnoses({ clinicalText: data.clinicalText, codingSystem: data.codingSystem })
       ]);
@@ -255,9 +311,9 @@ export function DiagnosisTool() {
         needsRetry = true;
         console.error("Error reintentable extrayendo conceptos:", conceptsResult.reason);
       }
-      if (diagnosesResult.status === 'rejected' && isRetryableError(diagnosesResult.reason)) {
+      if (diagnosesResultFromAI.status === 'rejected' && isRetryableError(diagnosesResultFromAI.reason)) {
         needsRetry = true;
-        console.error("Error reintentable sugiriendo diagnósticos:", diagnosesResult.reason);
+        console.error("Error reintentable sugiriendo diagnósticos:", diagnosesResultFromAI.reason);
       }
 
       if (needsRetry && attempt < MAX_RETRY_ATTEMPTS) {
@@ -274,8 +330,7 @@ export function DiagnosisTool() {
       }
 
       if (conceptsResult.status === 'fulfilled' && conceptsResult.value) {
-        currentExtractedConcepts = conceptsResult.value.clinicalConcepts || [];
-        setExtractedConcepts(currentExtractedConcepts);
+        setExtractedConcepts(conceptsResult.value.clinicalConcepts || []);
       } else if (conceptsResult.status === 'rejected') {
         console.error("Error extrayendo conceptos:", conceptsResult.reason);
         let conceptErrorMessage = "Ocurrió un error desconocido al extraer conceptos.";
@@ -295,19 +350,24 @@ export function DiagnosisTool() {
         });
       }
       
-      if (diagnosesResult.status === 'fulfilled' && diagnosesResult.value) {
-        currentSuggestedDiagnoses = diagnosesResult.value.diagnoses || [];
-        setSuggestedDiagnoses(currentSuggestedDiagnoses);
-      } else if (diagnosesResult.status === 'rejected') {
-        console.error("Error sugiriendo diagnósticos:", diagnosesResult.reason);
+      if (diagnosesResultFromAI.status === 'fulfilled' && diagnosesResultFromAI.value) {
+        const diagnosesWithUIFields = (diagnosesResultFromAI.value.diagnoses || []).map((diag, index) => ({
+          ...diag,
+          id: `${diag.code}-${Date.now()}-${index}`, // ID único para la UI
+          isPrincipal: false,
+          isSelected: false,
+        }));
+        setSuggestedDiagnoses(diagnosesWithUIFields);
+      } else if (diagnosesResultFromAI.status === 'rejected') {
+        console.error("Error sugiriendo diagnósticos:", diagnosesResultFromAI.reason);
         let diagnoseErrorMessage = "Ocurrió un error desconocido al sugerir diagnósticos.";
-         if (diagnosesResult.reason instanceof Error && diagnosesResult.reason.message) {
-            if (isRetryableError(diagnosesResult.reason)) {
+         if (diagnosesResultFromAI.reason instanceof Error && diagnosesResultFromAI.reason.message) {
+            if (isRetryableError(diagnosesResultFromAI.reason)) {
                 diagnoseErrorMessage = `El servicio de IA para sugerir diagnósticos está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Intente más tarde.`;
-            } else if (diagnosesResult.reason.message.includes("[GoogleGenerativeAI Error]") || diagnosesResult.reason.message.toLowerCase().includes("error fetching from")) {
+            } else if (diagnosesResultFromAI.reason.message.includes("[GoogleGenerativeAI Error]") || diagnosesResultFromAI.reason.message.toLowerCase().includes("error fetching from")) {
                 diagnoseErrorMessage = "Problema de comunicación al sugerir diagnósticos con IA. Intente más tarde.";
             } else {
-                 diagnoseErrorMessage = `Error al sugerir diagnósticos: ${diagnosesResult.reason.message}`;
+                 diagnoseErrorMessage = `Error al sugerir diagnósticos: ${diagnosesResultFromAI.reason.message}`;
             }
         }
         if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`); 
@@ -318,32 +378,15 @@ export function DiagnosisTool() {
         });
       }
 
-      if (conceptsResult.status === 'rejected' && diagnosesResult.status === 'rejected' && !needsRetry) {
+      if (conceptsResult.status === 'rejected' && diagnosesResultFromAI.status === 'rejected' && !needsRetry) {
         setError("Ambas operaciones de IA (conceptos y diagnósticos) fallaron. Por favor, revise la consola para más detalles e intente de nuevo.");
-      } else if ((conceptsResult.status === 'rejected' && !isRetryableError(conceptsResult.reason)) || (diagnosesResult.status === 'rejected' && !isRetryableError(diagnosesResult.reason))) {
-        if (!error && (conceptsResult.status === 'rejected' || diagnosesResult.status === 'rejected')) {
+      } else if ((conceptsResult.status === 'rejected' && !isRetryableError(conceptsResult.reason)) || (diagnosesResultFromAI.status === 'rejected' && !isRetryableError(diagnosesResultFromAI.reason))) {
+        if (!error && (conceptsResult.status === 'rejected' || diagnosesResultFromAI.status === 'rejected')) {
           setError("Una o más operaciones de IA fallaron. Por favor, revise los mensajes de error individuales.");
         }
       }
 
-      if (!needsRetry && conceptsResult.status === 'fulfilled' && diagnosesResult.status === 'fulfilled') {
-        try {
-          const historyEntry: HistoryEntry = {
-            timestamp: Date.now(),
-            clinicalText: data.clinicalText,
-            codingSystem: data.codingSystem,
-            extractedConcepts: currentExtractedConcepts,
-            suggestedDiagnoses: currentSuggestedDiagnoses,
-            fileName: uploadedFileName,
-          };
-          await db.history.add(historyEntry);
-          toast({ title: "Guardado en Historial", description: "Los resultados de este análisis se han guardado en el historial."});
-        } catch (dbError) {
-          console.error("Error saving to history:", dbError);
-          toast({ variant: "destructive", title: "Error de Historial", description: "No se pudo guardar el análisis en el historial."});
-        }
-      }
-
+      // Guardado manual, no automático aquí. El botón "Guardar en Historial" lo hará.
 
     } catch (e: any) { 
       console.error(`Error durante el procesamiento IA (intento ${attempt}):`, e);
@@ -379,7 +422,7 @@ export function DiagnosisTool() {
     } finally {
       const isAnyOperationStillRetrying = (
         ( (conceptsResult?.status === 'rejected' && isRetryableError(conceptsResult.reason)) || 
-          (diagnosesResult?.status === 'rejected' && isRetryableError(diagnosesResult.reason)) 
+          (diagnosesResultFromAI?.status === 'rejected' && isRetryableError(diagnosesResultFromAI.reason)) 
         ) && attempt < MAX_RETRY_ATTEMPTS
       );
       
@@ -528,15 +571,21 @@ export function DiagnosisTool() {
         )}
 
         {submitted && !isLoading && !isProcessingFile && !error && (
-          <div className="flex items-center space-x-2 p-4 bg-card shadow-lg rounded-xl border">
-            <Switch
-              id="show-concepts-switch"
-              checked={showClinicalConcepts}
-              onCheckedChange={setShowClinicalConcepts}
-            />
-            <Label htmlFor="show-concepts-switch" className="text-sm font-medium">
-              Mostrar Conceptos Clínicos Extraídos
-            </Label>
+          <div className="flex items-center justify-between p-4 bg-card shadow-lg rounded-xl border">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="show-concepts-switch"
+                checked={showClinicalConcepts}
+                onCheckedChange={setShowClinicalConcepts}
+              />
+              <Label htmlFor="show-concepts-switch" className="text-sm font-medium">
+                Mostrar Conceptos Clínicos Extraídos
+              </Label>
+            </div>
+            <Button onClick={handleSaveToHistory} size="sm" disabled={isLoading || isProcessingFile || !submitted || error || suggestedDiagnoses.length === 0}>
+              <Save className="mr-2 h-4 w-4" />
+              Guardar en Historial
+            </Button>
           </div>
         )}
         
@@ -571,20 +620,35 @@ export function DiagnosisTool() {
                 <Stethoscope className="mr-2 h-6 w-6 text-primary" />
                 Diagnósticos Sugeridos
               </CardTitle>
-              {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}.</CardDescription>}
+              {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}. Seleccione y marque como principal si es necesario.</CardDescription>}
             </CardHeader>
             <CardContent>
               {isLoading && !isProcessingFile && !error && (
                 <div className="space-y-2">
-                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-8 w-full rounded-md" />)}
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-md" />)}
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
                 <div className="space-y-2">
-                  {suggestedDiagnoses.map((diag, index) => (
-                    <Card key={index} className="bg-card shadow-sm rounded-lg overflow-hidden p-3">
-                       <div className="flex justify-between items-center w-full">
-                        <div className="flex items-baseline overflow-hidden min-w-0 mr-2">
+                  {suggestedDiagnoses.map((diag) => (
+                    <Card key={diag.id} className={`bg-card shadow-sm rounded-lg overflow-hidden p-3 ${diag.isPrincipal ? 'border-primary border-2' : ''}`}>
+                       <div className="flex items-center space-x-2 w-full">
+                        <Checkbox
+                            id={`select-${diag.id}`}
+                            checked={diag.isSelected}
+                            onCheckedChange={() => handleToggleSelectedDiagnosis(diag.id)}
+                            aria-label={`Seleccionar diagnóstico ${diag.code}`}
+                        />
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => handleSetPrincipalDiagnosis(diag.id)}
+                            className={`h-7 w-7 ${diag.isPrincipal ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                            aria-label="Marcar como principal"
+                        >
+                            <Star className={`h-4 w-4 ${diag.isPrincipal ? 'fill-current' : ''}`} />
+                        </Button>
+                        <div className="flex-1 flex items-baseline overflow-hidden min-w-0 mr-2">
                           <span className="font-medium text-sm text-primary mr-2 shrink-0">{diag.code}</span>
                           <Tooltip>
                             <TooltipTrigger asChild>
