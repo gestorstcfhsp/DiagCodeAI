@@ -40,6 +40,8 @@ import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
 import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { db, type HistoryEntry } from "@/lib/db";
+import { HistoryPanel } from "@/components/history-panel";
 
 
 const diagnosisFormSchema = z.object({
@@ -209,6 +211,19 @@ export function DiagnosisTool() {
     }
   };
 
+  const handleLoadFromHistory = (entry: HistoryEntry) => {
+    form.setValue("clinicalText", entry.clinicalText);
+    form.setValue("codingSystem", entry.codingSystem);
+    setUploadedFileName(entry.fileName || null);
+    setExtractedConcepts(entry.extractedConcepts);
+    setSuggestedDiagnoses(entry.suggestedDiagnoses);
+    setSubmitted(true);
+    setError(null);
+    setShowClinicalConcepts(entry.extractedConcepts.length > 0); // Show concepts if they exist in history
+    toast({ title: "Historial Cargado", description: "Los datos de la entrada del historial se han cargado en el formulario." });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   let conceptsResult: PromiseSettledResult<ExtractClinicalConceptsOutput> | undefined;
   let diagnosesResult: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
 
@@ -225,6 +240,9 @@ export function DiagnosisTool() {
       toast({ title: "Reintentando Sugerencias IA", description: `Intentando obtener sugerencias de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000});
     }
 
+    let currentExtractedConcepts: string[] = [];
+    let currentSuggestedDiagnoses: SuggestDiagnosesOutput['diagnoses'] = [];
+
     try {
       [conceptsResult, diagnosesResult] = await Promise.allSettled([
         extractClinicalConcepts({ documentText: data.clinicalText }),
@@ -232,16 +250,13 @@ export function DiagnosisTool() {
       ]);
 
       let needsRetry = false;
-      let retryableErrorMessage = "";
-
+      
       if (conceptsResult.status === 'rejected' && isRetryableError(conceptsResult.reason)) {
         needsRetry = true;
-        retryableErrorMessage = conceptsResult.reason.message;
         console.error("Error reintentable extrayendo conceptos:", conceptsResult.reason);
       }
       if (diagnosesResult.status === 'rejected' && isRetryableError(diagnosesResult.reason)) {
         needsRetry = true;
-        retryableErrorMessage = retryableErrorMessage || diagnosesResult.reason.message; 
         console.error("Error reintentable sugiriendo diagnósticos:", diagnosesResult.reason);
       }
 
@@ -259,7 +274,8 @@ export function DiagnosisTool() {
       }
 
       if (conceptsResult.status === 'fulfilled' && conceptsResult.value) {
-        setExtractedConcepts(conceptsResult.value.clinicalConcepts || []);
+        currentExtractedConcepts = conceptsResult.value.clinicalConcepts || [];
+        setExtractedConcepts(currentExtractedConcepts);
       } else if (conceptsResult.status === 'rejected') {
         console.error("Error extrayendo conceptos:", conceptsResult.reason);
         let conceptErrorMessage = "Ocurrió un error desconocido al extraer conceptos.";
@@ -280,7 +296,8 @@ export function DiagnosisTool() {
       }
       
       if (diagnosesResult.status === 'fulfilled' && diagnosesResult.value) {
-        setSuggestedDiagnoses(diagnosesResult.value.diagnoses || []);
+        currentSuggestedDiagnoses = diagnosesResult.value.diagnoses || [];
+        setSuggestedDiagnoses(currentSuggestedDiagnoses);
       } else if (diagnosesResult.status === 'rejected') {
         console.error("Error sugiriendo diagnósticos:", diagnosesResult.reason);
         let diagnoseErrorMessage = "Ocurrió un error desconocido al sugerir diagnósticos.";
@@ -306,6 +323,26 @@ export function DiagnosisTool() {
       } else if ((conceptsResult.status === 'rejected' && !isRetryableError(conceptsResult.reason)) || (diagnosesResult.status === 'rejected' && !isRetryableError(diagnosesResult.reason))) {
         if (!error && (conceptsResult.status === 'rejected' || diagnosesResult.status === 'rejected')) {
           setError("Una o más operaciones de IA fallaron. Por favor, revise los mensajes de error individuales.");
+        }
+      }
+
+      // Save to history only if both operations were successful (or fulfilled, even if empty)
+      // and it's the final attempt (not a retry in progress)
+      if (!needsRetry && conceptsResult.status === 'fulfilled' && diagnosesResult.status === 'fulfilled') {
+        try {
+          const historyEntry: HistoryEntry = {
+            timestamp: Date.now(),
+            clinicalText: data.clinicalText,
+            codingSystem: data.codingSystem,
+            extractedConcepts: currentExtractedConcepts,
+            suggestedDiagnoses: currentSuggestedDiagnoses,
+            fileName: uploadedFileName,
+          };
+          await db.history.add(historyEntry);
+          toast({ title: "Guardado en Historial", description: "Los resultados de este análisis se han guardado en el historial."});
+        } catch (dbError) {
+          console.error("Error saving to history:", dbError);
+          toast({ variant: "destructive", title: "Error de Historial", description: "No se pudo guardar el análisis en el historial."});
         }
       }
 
@@ -368,7 +405,7 @@ export function DiagnosisTool() {
         <CardContent>
           <div className="space-y-4 mb-6">
             <div>
-              <Label htmlFor="file-upload-button">Cargar Documento (Opcional)</Label>
+              <Label htmlFor="file-upload-input">Cargar Documento (Opcional)</Label>
               <div className="flex items-center space-x-2 mt-1">
                 <Button id="file-upload-button" type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isProcessingFile} className="flex-grow justify-start text-left">
                   {isProcessingFile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
@@ -587,6 +624,7 @@ export function DiagnosisTool() {
             </Card>
         )}
       </div>
+      <HistoryPanel onLoadHistory={handleLoadFromHistory} />
     </div>
     </TooltipProvider>
   );
