@@ -38,11 +38,29 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
-import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2 } from "lucide-react";
+import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2, GripVertical } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { db, type HistoryEntry, type UIDiagnosis } from "@/lib/db";
 import { HistoryPanel } from "@/components/history-panel";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { restrictToVerticalAxis, restrictToWindowEdges } from '@dnd-kit/modifiers';
 
 
 const diagnosisFormSchema = z.object({
@@ -66,6 +84,77 @@ function isRetryableError(error: any): boolean {
   }
   return false;
 }
+
+interface SortableDiagnosisItemProps {
+  diagnosis: UIDiagnosis;
+  onSetPrincipal: (id: string) => void;
+  onToggleSelected: (id: string) => void;
+}
+
+function SortableDiagnosisItem({ diagnosis, onSetPrincipal, onToggleSelected }: SortableDiagnosisItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: diagnosis.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined, 
+  };
+
+  return (
+    <Card 
+      ref={setNodeRef} 
+      style={style}
+      className={`bg-card shadow-sm rounded-lg overflow-hidden p-3 ${diagnosis.isPrincipal ? 'border-primary border-2' : ''} ${isDragging ? 'opacity-75 shadow-xl' : ''}`}
+    >
+       <div className="flex items-center space-x-2 w-full">
+        <Button variant="ghost" size="icon" {...attributes} {...listeners} className="cursor-grab h-7 w-7 text-muted-foreground hover:text-foreground">
+          <GripVertical className="h-4 w-4" />
+          <span className="sr-only">Arrastrar para reordenar</span>
+        </Button>
+        <Checkbox
+            id={`select-${diagnosis.id}`}
+            checked={!!diagnosis.isSelected}
+            onCheckedChange={() => onToggleSelected(diagnosis.id)}
+            aria-label={`Seleccionar diagnóstico ${diagnosis.code}`}
+        />
+        <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => onSetPrincipal(diagnosis.id)}
+            className={`h-7 w-7 ${diagnosis.isPrincipal ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+            aria-label="Marcar como principal"
+        >
+            <Star className={`h-4 w-4 ${diagnosis.isPrincipal ? 'fill-current' : ''}`} />
+        </Button>
+        <div className="flex-1 flex items-baseline overflow-hidden min-w-0 mr-2">
+          <span className="font-medium text-sm text-primary mr-2 shrink-0">{diagnosis.code}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <p className="text-sm text-card-foreground truncate" title={diagnosis.description}>{diagnosis.description}</p>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="start">
+              <p>{diagnosis.description}</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <Badge
+          variant={diagnosis.confidence > 0.7 ? "default" : diagnosis.confidence > 0.4 ? "secondary" : "outline"}
+          className="text-xs px-2 py-0.5 ml-auto shrink-0 whitespace-nowrap"
+        >
+          {(diagnosis.confidence * 100).toFixed(0)}%
+        </Badge>
+      </div>
+    </Card>
+  );
+}
+
 
 export function DiagnosisTool() {
   const [isLoading, setIsLoading] = useState(false);
@@ -102,13 +191,7 @@ export function DiagnosisTool() {
   const processFileForClinicalNotes = async (file: File, attempt: number) => {
     setIsProcessingFile(true);
     setFileProcessingError(null);
-    // Limpiar resultados anteriores al cargar nuevo archivo
-    setExtractedConcepts([]);
-    setSuggestedDiagnoses([]);
-    setError(null);
-    setSubmitted(false);
-    setShowClinicalConcepts(false);
-
+    
     if (attempt > 1) {
       toast({ title: "Reintentando Procesamiento de Archivo", description: `Intentando procesar el archivo de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000 });
     }
@@ -299,6 +382,25 @@ export function DiagnosisTool() {
     toast({ title: "Diagnósticos Limpiados", description: "La lista de diagnósticos sugeridos ha sido borrada."});
   };
 
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const {active, over} = event;
+    
+    if (over && active.id !== over.id) {
+      setSuggestedDiagnoses((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  }
+
 
   let conceptsResult: PromiseSettledResult<ExtractClinicalConceptsOutput> | undefined;
   let diagnosesResultFromAI: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
@@ -371,7 +473,7 @@ export function DiagnosisTool() {
       if (diagnosesResultFromAI.status === 'fulfilled' && diagnosesResultFromAI.value) {
         const diagnosesWithUIFields = (diagnosesResultFromAI.value.diagnoses || []).map((diag, index) => ({
           ...diag,
-          id: `${diag.code}-${Date.now()}-${index}`, 
+          id: `${diag.code}-${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`, 
           isPrincipal: false,
           isSelected: false,
         }));
@@ -549,7 +651,7 @@ export function DiagnosisTool() {
                         if (typeof window !== 'undefined') {
                           localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, value);
                         }
-                        setSuggestedDiagnoses([]); // Limpiar diagnósticos sugeridos al cambiar el sistema
+                        setSuggestedDiagnoses([]); 
                         toast({ title: "Diagnósticos Anteriores Limpiados", description: "Se limpiaron las sugerencias debido al cambio de sistema de codificación."});
                       }} 
                       value={field.value} 
@@ -639,7 +741,7 @@ export function DiagnosisTool() {
                   <Stethoscope className="mr-2 h-6 w-6 text-primary" />
                   Diagnósticos Sugeridos
                 </CardTitle>
-                {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}. Seleccione y marque como principal si es necesario.</CardDescription>}
+                {suggestedDiagnoses.length > 0 && !isLoading && <CardDescription>Basado en el sistema de codificación {form.getValues("codingSystem")}. Seleccione, marque como principal y reordene si es necesario.</CardDescription>}
               </div>
               {suggestedDiagnoses.length > 0 && !isLoading && !isProcessingFile && (
                 <Tooltip>
@@ -662,46 +764,25 @@ export function DiagnosisTool() {
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
-                <div className="space-y-2">
-                  {suggestedDiagnoses.map((diag) => (
-                    <Card key={diag.id} className={`bg-card shadow-sm rounded-lg overflow-hidden p-3 ${diag.isPrincipal ? 'border-primary border-2' : ''}`}>
-                       <div className="flex items-center space-x-2 w-full">
-                        <Checkbox
-                            id={`select-${diag.id}`}
-                            checked={diag.isSelected}
-                            onCheckedChange={() => handleToggleSelectedDiagnosis(diag.id)}
-                            aria-label={`Seleccionar diagnóstico ${diag.code}`}
+                <DndContext 
+                  sensors={sensors} 
+                  collisionDetection={closestCenter} 
+                  onDragEnd={handleDragEnd}
+                  modifiers={[restrictToVerticalAxis, restrictToWindowEdges]}
+                >
+                  <SortableContext items={suggestedDiagnoses.map(d => d.id)} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-2">
+                      {suggestedDiagnoses.map((diag) => (
+                        <SortableDiagnosisItem 
+                          key={diag.id} 
+                          diagnosis={diag} 
+                          onSetPrincipal={handleSetPrincipalDiagnosis}
+                          onToggleSelected={handleToggleSelectedDiagnosis}
                         />
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => handleSetPrincipalDiagnosis(diag.id)}
-                            className={`h-7 w-7 ${diag.isPrincipal ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
-                            aria-label="Marcar como principal"
-                        >
-                            <Star className={`h-4 w-4 ${diag.isPrincipal ? 'fill-current' : ''}`} />
-                        </Button>
-                        <div className="flex-1 flex items-baseline overflow-hidden min-w-0 mr-2">
-                          <span className="font-medium text-sm text-primary mr-2 shrink-0">{diag.code}</span>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <p className="text-sm text-card-foreground truncate" title={diag.description}>{diag.description}</p>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" align="start">
-                              <p>{diag.description}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <Badge
-                          variant={diag.confidence > 0.7 ? "default" : diag.confidence > 0.4 ? "secondary" : "outline"}
-                          className="text-xs px-2 py-0.5 ml-auto shrink-0 whitespace-nowrap"
-                        >
-                          {(diag.confidence * 100).toFixed(0)}%
-                        </Badge>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
               )}
               {!isLoading && submitted && suggestedDiagnoses.length === 0 && !error && !isProcessingFile && (
                 <p className="text-muted-foreground">No se sugirieron diagnósticos para el texto y sistema de codificación proporcionados.</p>
@@ -724,4 +805,3 @@ export function DiagnosisTool() {
     </TooltipProvider>
   );
 }
-
