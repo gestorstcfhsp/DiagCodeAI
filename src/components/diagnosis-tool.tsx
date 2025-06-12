@@ -18,10 +18,10 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel as ShadcnFormLabel, // Renamed to avoid conflict with basic Label
+  FormLabel as ShadcnFormLabel, 
   FormMessage,
 } from "@/components/ui/form";
-import { Label } from "@/components/ui/label"; // Basic Label for non-form-context elements
+import { Label } from "@/components/ui/label"; 
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -40,7 +40,8 @@ import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/a
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
 import { summarizeExtensiveDocument } from "@/ai/flows/summarize-extensive-document";
-import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2, GripVertical, FileTextIcon, FileClockIcon } from "lucide-react";
+import { summarizeClinicalNotes, type SummarizeClinicalNotesOutput } from "@/ai/flows/summarize-clinical-notes"; // Importar nuevo flujo
+import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2, GripVertical, FileTextIcon, FileClockIcon, ScrollText, BookText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { db, type HistoryEntry, type UIDiagnosis } from "@/lib/db";
@@ -76,11 +77,11 @@ type DiagnosisFormValues = z.infer<typeof diagnosisFormSchema>;
 type CodingSystemType = DiagnosisFormValues["codingSystem"];
 type UploadMethodType = "normal" | "extensive";
 
-const FILE_PROCESSING_RETRY_DELAYS_MS = [2000, 3000, 15000]; // 2s, 3s, 15s
-const MAX_FILE_PROCESSING_ATTEMPTS = FILE_PROCESSING_RETRY_DELAYS_MS.length + 1; // 1 initial + 3 retries
+const FILE_PROCESSING_RETRY_DELAYS_MS = [2000, 3000, 15000]; 
+const MAX_FILE_PROCESSING_ATTEMPTS = FILE_PROCESSING_RETRY_DELAYS_MS.length + 1; 
 
-const AI_SUGGESTION_RETRY_DELAYS_MS = [2000, 3000, 15000]; // 2s, 3s, 15s
-const MAX_AI_SUGGESTION_ATTEMPTS = AI_SUGGESTION_RETRY_DELAYS_MS.length + 1; // 1 initial + 3 retries
+const AI_SUGGESTION_RETRY_DELAYS_MS = [2000, 3000, 15000]; 
+const MAX_AI_SUGGESTION_ATTEMPTS = AI_SUGGESTION_RETRY_DELAYS_MS.length + 1; 
 
 const LOCALSTORAGE_CODING_SYSTEM_KEY = 'lastCodingSystem';
 const LOCALSTORAGE_UPLOAD_METHOD_KEY = 'lastUploadMethod';
@@ -177,6 +178,9 @@ export function DiagnosisTool() {
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadMethod, setUploadMethod] = useState<UploadMethodType>("normal");
+
+  const [clinicalSummary, setClinicalSummary] = useState<string | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
 
   const { toast } = useToast();
@@ -307,6 +311,7 @@ export function DiagnosisTool() {
     setError(null);
     setSubmitted(false);
     setShowClinicalConcepts(false);
+    setClinicalSummary(null); 
 
     await processFileForClinicalNotes(file, 1);
 
@@ -325,6 +330,7 @@ export function DiagnosisTool() {
     setError(null);
     setSubmitted(false);
     setShowClinicalConcepts(false);
+    setClinicalSummary(null); 
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -382,6 +388,7 @@ export function DiagnosisTool() {
     setSubmitted(true);
     setError(null);
     setShowClinicalConcepts(entry.extractedConcepts.length > 0);
+    setClinicalSummary(null); // Limpiar resumen al cargar de historial
     toast({ title: "Historial Cargado", description: "Los datos de la entrada del historial se han cargado en el formulario." });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -422,6 +429,7 @@ export function DiagnosisTool() {
         extractedConcepts: extractedConcepts,
         suggestedDiagnoses: suggestedDiagnoses,
         fileName: uploadedFileName,
+        // summary: clinicalSummary, // Opcional: considerar si guardar el resumen en historial
       };
       await db.history.add(historyEntry);
       toast({ title: "Guardado en Historial", description: "El análisis actual se ha guardado en el historial."});
@@ -467,6 +475,7 @@ export function DiagnosisTool() {
       setSubmitted(true);
       setExtractedConcepts([]);
       setSuggestedDiagnoses([]);
+      setClinicalSummary(null); 
     }
 
     toast({ 
@@ -581,7 +590,7 @@ export function DiagnosisTool() {
       }
 
       if (e.message && typeof e.message === 'string') {
-        if (isRetryableError(e)) { // Max attempts reached
+        if (isRetryableError(e)) { 
           generalErrorMessage = `Uno de los servicios de IA está sobrecargado/limitado (todos los ${MAX_AI_SUGGESTION_ATTEMPTS} intentos fallaron). Por favor, intente de nuevo más tarde.`;
         } else if (e.message.includes("[GoogleGenerativeAI Error]") || e.message.toLowerCase().includes("error fetching from")) {
            generalErrorMessage = "Hubo un problema de comunicación general con los servicios de IA. Verifique su conexión o intente más tarde.";
@@ -618,6 +627,39 @@ export function DiagnosisTool() {
       description: `Se utilizará el "${value === 'extensive' ? 'Método Documento Extenso' : 'Método Normal'}" para la próxima carga de archivo.`,
     });
   };
+
+  const handleGenerateSummary = async () => {
+    const clinicalText = form.getValues("clinicalText");
+    if (!clinicalText || clinicalText.length < 20) {
+      toast({ variant: "destructive", title: "Texto Clínico Insuficiente", description: "Por favor, ingrese al menos 20 caracteres en las notas clínicas para generar un resumen." });
+      return;
+    }
+
+    setIsSummarizing(true);
+    setClinicalSummary(null);
+    toast({ title: "Generando Resumen...", description: "La IA está procesando las notas clínicas para crear un resumen." });
+
+    try {
+      const result: SummarizeClinicalNotesOutput = await summarizeClinicalNotes({ clinicalNotes: clinicalText });
+      setClinicalSummary(result.summary);
+      toast({ title: "Resumen Generado", description: "El resumen de las notas clínicas está listo." });
+    } catch (err: any) {
+      console.error("Error generando resumen:", err);
+      let summaryErrorMessage = "Ocurrió un error al generar el resumen.";
+       if (err.message && typeof err.message === 'string') {
+        if (err.message.includes("[GoogleGenerativeAI Error]") || err.message.toLowerCase().includes("error fetching from")) {
+           summaryErrorMessage = "Problema de comunicación con el servicio de IA al generar el resumen. Verifique su conexión o intente más tarde.";
+        } else {
+           summaryErrorMessage = `Error al generar resumen: ${err.message}`;
+        }
+      }
+      setClinicalSummary(""); // Para indicar que hubo un intento pero falló o no produjo nada
+      toast({ variant: "destructive", title: "Error de Resumen", description: summaryErrorMessage });
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
 
   return (
     <TooltipProvider>
@@ -752,11 +794,11 @@ export function DiagnosisTool() {
                         if (typeof window !== 'undefined') {
                           localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, value);
                         }
-                        setSuggestedDiagnoses([]);
+                        setSuggestedDiagnoses([]); // Limpiar diagnósticos anteriores
                         toast({ title: "Diagnósticos Anteriores Limpiados", description: "Se limpiaron las sugerencias debido al cambio de sistema de codificación."});
                       }}
                       value={field.value}
-                      disabled={isProcessingFile || isLoading}
+                      disabled={isProcessingFile || isLoading || isSummarizing}
                     >
                       <FormControl>
                         <SelectTrigger className="rounded-md shadow-sm focus:ring-primary">
@@ -773,17 +815,34 @@ export function DiagnosisTool() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={isLoading || isProcessingFile} className="w-full rounded-md shadow-md hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2">
-                {(isLoading || isProcessingFile) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isLoading ? 'Procesando IA...' : (isProcessingFile ? 'Procesando Archivo...' : 'Obtener Sugerencias IA')}
-              </Button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button 
+                  type="submit" 
+                  disabled={isLoading || isProcessingFile || isSummarizing} 
+                  className="flex-1 rounded-md shadow-md hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                >
+                  {(isLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {isLoading ? 'Procesando IA...' : 'Obtener Sugerencias IA'}
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="outline"
+                  onClick={handleGenerateSummary}
+                  disabled={isLoading || isProcessingFile || isSummarizing || !form.getValues("clinicalText") || form.getValues("clinicalText").length < 20}
+                  className="flex-1 rounded-md shadow-md focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                >
+                  {isSummarizing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <ScrollText className="mr-2 h-4 w-4" />
+                  {isSummarizing ? 'Generando Resumen...' : 'Generar Resumen'}
+                </Button>
+              </div>
             </form>
           </Form>
         </CardContent>
       </Card>
 
       <div className="space-y-6">
-        {error && !isLoading && !isProcessingFile && (
+        {error && !isLoading && !isProcessingFile && !isSummarizing && (
           <Alert variant="destructive" className="shadow-md rounded-xl">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle className="font-headline">Error de IA</AlertTitle>
@@ -791,7 +850,7 @@ export function DiagnosisTool() {
           </Alert>
         )}
 
-        {submitted && !isLoading && !isProcessingFile && !error && (
+        {submitted && !isLoading && !isProcessingFile && !isSummarizing && !error && (
           <div className="flex items-center justify-between p-4 bg-card shadow-lg rounded-xl border">
             <div className="flex items-center space-x-2">
               <Switch
@@ -810,7 +869,7 @@ export function DiagnosisTool() {
           </div>
         )}
 
-        {showClinicalConcepts && ((isLoading && !isProcessingFile && !error) || (submitted && !isLoading && !isProcessingFile && !error)) && (
+        {showClinicalConcepts && ((isLoading && !isProcessingFile && !isSummarizing && !error) || (submitted && !isLoading && !isProcessingFile && !error)) && (
            <Card className="shadow-lg rounded-xl">
             <CardHeader>
               <CardTitle className="font-headline text-2xl flex items-center">
@@ -833,6 +892,31 @@ export function DiagnosisTool() {
             </CardContent>
           </Card>
         )}
+
+        {(isSummarizing || clinicalSummary !== null) && (
+          <Card className="shadow-lg rounded-xl">
+            <CardHeader>
+              <CardTitle className="font-headline text-2xl flex items-center">
+                <BookText className="mr-2 h-6 w-6 text-primary" />
+                Resumen de Notas Clínicas
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isSummarizing && <Skeleton className="h-32 w-full rounded-md" />}
+              {!isSummarizing && clinicalSummary && (
+                <Textarea
+                  readOnly
+                  value={clinicalSummary}
+                  className="min-h-[150px] resize-y rounded-md shadow-sm bg-secondary/30"
+                />
+              )}
+              {!isSummarizing && clinicalSummary === "" && (
+                 <p className="text-muted-foreground">No se pudo generar un resumen o el texto proporcionado no produjo un resumen significativo.</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
 
         {(isLoading || (submitted && suggestedDiagnoses.length > 0) || (submitted && !isLoading && suggestedDiagnoses.length === 0 && !error && !isProcessingFile)) && (
           <Card className="shadow-lg rounded-xl">
@@ -872,7 +956,7 @@ export function DiagnosisTool() {
               )}
             </CardHeader>
             <CardContent>
-              {isLoading && !isProcessingFile && !error && (
+              {isLoading && !isProcessingFile && !isSummarizing && !error && (
                 <div className="space-y-2">
                   {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-md" />)}
                 </div>
@@ -904,7 +988,7 @@ export function DiagnosisTool() {
             </CardContent>
           </Card>
         )}
-         {!isLoading && !submitted && !isProcessingFile && !error && (
+         {!isLoading && !submitted && !isProcessingFile && !isSummarizing && !error && clinicalSummary === null && (
             <Card className="shadow-lg rounded-xl">
                 <CardContent className="pt-6">
                     <p className="text-center text-muted-foreground">
