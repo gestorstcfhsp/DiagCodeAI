@@ -24,6 +24,7 @@ export interface HistoryEntry {
   extractedConcepts: string[];
   suggestedDiagnoses: UIDiagnosis[]; // Usamos la interfaz extendida aquí
   fileName?: string | null;
+  clinicalSummary?: string | null; // Nuevo campo para el resumen
 }
 
 export class DiagCodeAIDexie extends Dexie {
@@ -32,16 +33,24 @@ export class DiagCodeAIDexie extends Dexie {
   constructor() {
     super('DiagCodeAIHistoryDB');
     this.version(1).stores({
-      history: '++id, timestamp', // Mantener este esquema si no se necesitan indexar los nuevos campos
+      history: '++id, timestamp', 
     });
-    // Si se actualiza la estructura de suggestedDiagnoses de forma que Dexie necesite saberlo:
+    // Si fuera necesario añadir índices para clinicalSummary o cambiar estructura de forma que Dexie lo requiera,
+    // se haría una nueva versión aquí. Por ahora, añadir un campo opcional no lo requiere estrictamente.
+    // Ejemplo:
     // this.version(2).stores({
-    //   history: '++id, timestamp, suggestedDiagnoses.isPrincipal, suggestedDiagnoses.isSelected', // Ejemplo si se necesitaran índices
+    //   history: '++id, timestamp, clinicalSummary', // Si clinicalSummary necesitara ser indexado
     // }).upgrade(tx => {
-    //   // Lógica de migración si es necesaria, por ahora no parece serlo
-    //   // ya que los campos son opcionales o manejados en la aplicación.
+    //   // Lógica de migración para añadir el campo a entradas existentes si se le diera un valor por defecto.
+    //   // Por ahora, las entradas antiguas simplemente no tendrán el campo `clinicalSummary`.
+    //   return tx.table("history").toCollection().modify(entry => {
+    //     if (typeof entry.clinicalSummary === 'undefined') {
+    //       entry.clinicalSummary = null; // o un string vacío, o dejar undefined
+    //     }
+    //   });
     // });
   }
 }
 
 export const db = new DiagCodeAIDexie();
+

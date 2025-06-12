@@ -18,7 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer, FileDown, X } from "lucide-react";
+import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer, FileDown, X, BookText } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -46,6 +46,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { Textarea } from "@/components/ui/textarea";
 
 interface HistoryPanelProps {
   onLoadHistory: (entry: HistoryEntry) => void;
@@ -146,7 +147,8 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
         "Sistema Codificacion",
         "Texto Clinico",
         "Conceptos Clinicos",
-        "Diagnosticos Sugeridos"
+        "Diagnosticos Sugeridos",
+        "Resumen Clinico" // Nueva columna
       ];
 
       const csvRows = [header.join(",")];
@@ -163,7 +165,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
       };
 
       allEntries.forEach(entry => {
-        const row: string[] = []; // Explicitly string[] for join
+        const row: string[] = []; 
         row.push(escapeCSVCell(entry.id));
         row.push(escapeCSVCell(new Date(entry.timestamp).toISOString()));
         row.push(escapeCSVCell(format(new Date(entry.timestamp), "yyyy-MM-dd HH:mm:ss", { locale: es })));
@@ -178,6 +180,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
           return `${escapeCSVCell(diag.code)} (${(diag.confidence * 100).toFixed(0)}%, ${principalMarker}, ${selectedMarker}) - ${escapeCSVCell(diag.description)}`;
         }).join(" | ");
         row.push(escapeCSVCell(diagnosesString));
+        row.push(escapeCSVCell(entry.clinicalSummary)); // Añadir resumen
         
         csvRows.push(row.join(","));
       });
@@ -234,7 +237,8 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                 typeof diag.id === 'string' && 
                 (typeof diag.isPrincipal === 'boolean' || diag.isPrincipal === undefined) &&
                 (typeof diag.isSelected === 'boolean' || diag.isSelected === undefined)
-              )
+              ) &&
+              (typeof entry.clinicalSummary === 'string' || typeof entry.clinicalSummary === 'undefined' || entry.clinicalSummary === null) // Validar nuevo campo
           )
         ) {
           toast({
@@ -255,7 +259,8 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                 ...d,
                 isPrincipal: d.isPrincipal ?? false,
                 isSelected: d.isSelected ?? false,
-              }))
+              })),
+              clinicalSummary: entry.clinicalSummary ?? null, // Asegurar que es null si no existe
             };
         });
         await db.history.bulkAdd(entriesToAdd);
@@ -530,6 +535,12 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                       <span className="font-semibold">Texto Clínico:</span>{" "}
                       {entry.clinicalText}
                     </p>
+                     {entry.clinicalSummary && (
+                        <p className="line-clamp-1 text-xs text-muted-foreground">
+                            <span className="font-semibold">Resumen:</span>{" "}
+                            {entry.clinicalSummary}
+                        </p>
+                    )}
                     <div>
                       <span className="font-semibold">Resultados:</span>
                       <ul className="list-disc list-inside ml-1 text-xs">
@@ -543,6 +554,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                             <span className="ml-1">({entry.suggestedDiagnoses.filter(d => d.isSelected).length} validados <CheckSquare className="ml-1 h-3 w-3 inline-block text-green-600" />)</span>
                           )}
                         </li>
+                         {entry.clinicalSummary && <li>Resumen clínico generado</li>}
                       </ul>
                     </div>
                   </CardContent>
@@ -625,6 +637,20 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                     <p className="text-sm whitespace-pre-wrap">{previewEntry.clinicalText}</p>
                   </ScrollArea>
                 </div>
+                {previewEntry.clinicalSummary && (
+                  <>
+                    <Separator />
+                    <div>
+                      <Label className="font-semibold text-base flex items-center">
+                        <BookText className="mr-2 h-5 w-5 text-primary" />
+                        Resumen Clínico:
+                      </Label>
+                      <ScrollArea className="h-[120px] w-full rounded-md border p-3 mt-1 bg-secondary/30">
+                        <p className="text-sm whitespace-pre-wrap">{previewEntry.clinicalSummary}</p>
+                      </ScrollArea>
+                    </div>
+                  </>
+                )}
                 <Separator />
                 <div>
                   <Label className="font-semibold text-base">Conceptos Clínicos Extraídos ({previewEntry.extractedConcepts.length}):</Label>

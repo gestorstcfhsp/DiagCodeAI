@@ -304,14 +304,15 @@ export function DiagnosisTool() {
     if (!file) return;
 
     setUploadedFileName(file.name);
-    form.setValue('clinicalText', '');
+    form.setValue('clinicalText', ''); // Clear text only when a new file is selected
 
-    setExtractedConcepts([]);
-    setSuggestedDiagnoses([]);
-    setError(null);
-    setSubmitted(false);
-    setShowClinicalConcepts(false);
-    setClinicalSummary(null); 
+    // Do not clear other results here, let user decide or clear via specific buttons/actions
+    // setExtractedConcepts([]);
+    // setSuggestedDiagnoses([]);
+    // setError(null);
+    // setSubmitted(false); // This might be okay to reset if new file implies new analysis
+    // setShowClinicalConcepts(false);
+    // setClinicalSummary(null); 
 
     await processFileForClinicalNotes(file, 1);
 
@@ -399,10 +400,10 @@ export function DiagnosisTool() {
         ...diag,
         id: diag.id || `${diag.code}-${Date.now()}-${Math.random()}`
     })));
+    setClinicalSummary(entry.clinicalSummary || null); // Load clinical summary
     setSubmitted(true);
     setError(null);
     setShowClinicalConcepts(entry.extractedConcepts.length > 0);
-    setClinicalSummary(null); 
     toast({ title: "Historial Cargado", description: "Los datos de la entrada del historial se han cargado en el formulario." });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -431,8 +432,8 @@ export function DiagnosisTool() {
 
   const handleSaveToHistory = async () => {
     const data = form.getValues();
-    if (!submitted || isLoading || error || suggestedDiagnoses.length === 0) {
-      toast({ variant: "destructive", title: "No se puede guardar", description: "Debe haber resultados válidos para guardar en el historial."});
+    if (!submitted || isLoading || error || (suggestedDiagnoses.length === 0 && !clinicalSummary)) {
+      toast({ variant: "destructive", title: "No se puede guardar", description: "Debe haber resultados válidos (diagnósticos o resumen) para guardar en el historial."});
       return;
     }
     try {
@@ -443,7 +444,7 @@ export function DiagnosisTool() {
         extractedConcepts: extractedConcepts,
         suggestedDiagnoses: suggestedDiagnoses,
         fileName: uploadedFileName,
-        // summary: clinicalSummary, 
+        clinicalSummary: clinicalSummary, 
       };
       await db.history.add(historyEntry);
       toast({ title: "Guardado en Historial", description: "El análisis actual se ha guardado en el historial."});
@@ -489,7 +490,8 @@ export function DiagnosisTool() {
       setSubmitted(true);
       setExtractedConcepts([]);
       setSuggestedDiagnoses([]);
-      setClinicalSummary(null); 
+      // No limpiar el resumen aquí, ya que "Obtener Sugerencias IA" y "Generar Resumen" son acciones separadas
+      // setClinicalSummary(null); 
     }
 
     toast({ 
@@ -876,7 +878,7 @@ export function DiagnosisTool() {
                 Mostrar Conceptos Clínicos Extraídos
               </Label>
             </div>
-            <Button onClick={handleSaveToHistory} size="sm" disabled={isLoading || isProcessingFile || !submitted || !!error || suggestedDiagnoses.length === 0}>
+            <Button onClick={handleSaveToHistory} size="sm" disabled={isLoading || isProcessingFile || !submitted || !!error || (suggestedDiagnoses.length === 0 && !clinicalSummary) }>
               <Save className="mr-2 h-4 w-4" />
               Guardar en Historial
             </Button>
