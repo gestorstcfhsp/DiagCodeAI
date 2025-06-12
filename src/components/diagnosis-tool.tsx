@@ -40,7 +40,7 @@ import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/a
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
 import { summarizeExtensiveDocument } from "@/ai/flows/summarize-extensive-document";
-import { summarizeClinicalNotes, type SummarizeClinicalNotesOutput } from "@/ai/flows/summarize-clinical-notes"; // Importar nuevo flujo
+import { summarizeClinicalNotes, type SummarizeClinicalNotesOutput } from "@/ai/flows/summarize-clinical-notes";
 import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2, GripVertical, FileTextIcon, FileClockIcon, ScrollText, BookText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -375,6 +375,20 @@ export function DiagnosisTool() {
     }
   };
 
+  const handleCopyClinicalSummary = async () => {
+    if (!clinicalSummary) {
+      toast({ variant: "destructive", title: "Nada que copiar", description: "No hay resumen clínico para copiar." });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(clinicalSummary);
+      toast({ title: "¡Resumen copiado!", description: "El resumen de las notas clínicas ha sido copiado al portapapeles." });
+    } catch (err) {
+      console.error("Error al copiar resumen: ", err);
+      toast({ variant: "destructive", title: "Error al copiar", description: "No se pudo copiar el resumen al portapapeles." });
+    }
+  };
+
 
   const handleLoadFromHistory = (entry: HistoryEntry) => {
     form.setValue("clinicalText", entry.clinicalText);
@@ -388,7 +402,7 @@ export function DiagnosisTool() {
     setSubmitted(true);
     setError(null);
     setShowClinicalConcepts(entry.extractedConcepts.length > 0);
-    setClinicalSummary(null); // Limpiar resumen al cargar de historial
+    setClinicalSummary(null); 
     toast({ title: "Historial Cargado", description: "Los datos de la entrada del historial se han cargado en el formulario." });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -429,7 +443,7 @@ export function DiagnosisTool() {
         extractedConcepts: extractedConcepts,
         suggestedDiagnoses: suggestedDiagnoses,
         fileName: uploadedFileName,
-        // summary: clinicalSummary, // Opcional: considerar si guardar el resumen en historial
+        // summary: clinicalSummary, 
       };
       await db.history.add(historyEntry);
       toast({ title: "Guardado en Historial", description: "El análisis actual se ha guardado en el historial."});
@@ -653,7 +667,7 @@ export function DiagnosisTool() {
            summaryErrorMessage = `Error al generar resumen: ${err.message}`;
         }
       }
-      setClinicalSummary(""); // Para indicar que hubo un intento pero falló o no produjo nada
+      setClinicalSummary(""); 
       toast({ variant: "destructive", title: "Error de Resumen", description: summaryErrorMessage });
     } finally {
       setIsSummarizing(false);
@@ -794,7 +808,7 @@ export function DiagnosisTool() {
                         if (typeof window !== 'undefined') {
                           localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, value);
                         }
-                        setSuggestedDiagnoses([]); // Limpiar diagnósticos anteriores
+                        setSuggestedDiagnoses([]); 
                         toast({ title: "Diagnósticos Anteriores Limpiados", description: "Se limpiaron las sugerencias debido al cambio de sistema de codificación."});
                       }}
                       value={field.value}
@@ -895,11 +909,31 @@ export function DiagnosisTool() {
 
         {(isSummarizing || clinicalSummary !== null) && (
           <Card className="shadow-lg rounded-xl">
-            <CardHeader>
-              <CardTitle className="font-headline text-2xl flex items-center">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div className="flex items-center">
                 <BookText className="mr-2 h-6 w-6 text-primary" />
-                Resumen de Notas Clínicas
-              </CardTitle>
+                <CardTitle className="font-headline text-2xl">
+                  Resumen de Notas Clínicas
+                </CardTitle>
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleCopyClinicalSummary}
+                    disabled={isSummarizing || !clinicalSummary}
+                    className="h-8 w-8"
+                  >
+                    <ClipboardCopy className="h-4 w-4" />
+                    <span className="sr-only">Copiar Resumen</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Copiar Resumen</p>
+                </TooltipContent>
+              </Tooltip>
             </CardHeader>
             <CardContent>
               {isSummarizing && <Skeleton className="h-32 w-full rounded-md" />}
