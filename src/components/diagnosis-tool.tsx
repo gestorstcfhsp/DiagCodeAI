@@ -18,10 +18,10 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel as ShadcnFormLabel,
+  FormLabel as ShadcnFormLabel, // Renamed to avoid conflict with basic Label
   FormMessage,
 } from "@/components/ui/form";
-import { Label } from "@/components/ui/label";
+import { Label } from "@/components/ui/label"; // Basic Label for non-form-context elements
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -76,9 +76,12 @@ type DiagnosisFormValues = z.infer<typeof diagnosisFormSchema>;
 type CodingSystemType = DiagnosisFormValues["codingSystem"];
 type UploadMethodType = "normal" | "extensive";
 
+const FILE_PROCESSING_RETRY_DELAYS_MS = [2000, 3000, 15000]; // 2s, 3s, 15s
+const MAX_FILE_PROCESSING_ATTEMPTS = FILE_PROCESSING_RETRY_DELAYS_MS.length + 1; // 1 initial + 3 retries
 
-const MAX_RETRY_ATTEMPTS = 2;
-const RETRY_DELAY_MS = 30000;
+const AI_SUGGESTION_RETRY_DELAYS_MS = [2000, 3000, 15000]; // 2s, 3s, 15s
+const MAX_AI_SUGGESTION_ATTEMPTS = AI_SUGGESTION_RETRY_DELAYS_MS.length + 1; // 1 initial + 3 retries
+
 const LOCALSTORAGE_CODING_SYSTEM_KEY = 'lastCodingSystem';
 const LOCALSTORAGE_UPLOAD_METHOD_KEY = 'lastUploadMethod';
 
@@ -206,12 +209,16 @@ export function DiagnosisTool() {
     }
   }, [form]);
 
-  const processFileForClinicalNotes = async (file: File, attempt: number) => {
+  const processFileForClinicalNotes = async (file: File, currentAttempt: number) => {
     setIsProcessingFile(true);
     setFileProcessingError(null);
 
     const processingMethodDescription = uploadMethod === 'extensive' ? 'usando método para documentos extensos' : 'usando método normal';
-    toast({ title: "Procesando Archivo...", description: `Intentando procesar "${file.name}" ${processingMethodDescription} (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000 });
+    toast({ 
+      title: "Procesando Archivo...", 
+      description: `Procesando "${file.name}" ${processingMethodDescription} (intento ${currentAttempt} de ${MAX_FILE_PROCESSING_ATTEMPTS})...`, 
+      duration: 5000 
+    });
 
     if (file.type === "text/plain") {
       const reader = new FileReader();
@@ -245,22 +252,23 @@ export function DiagnosisTool() {
           form.setValue("clinicalText", resultText);
           setIsProcessingFile(false);
         } catch (err: any) {
-          console.error(`Error procesando documento con método ${uploadMethod} (intento ${attempt}):`, err);
-          if (isRetryableError(err) && attempt < MAX_RETRY_ATTEMPTS) {
+          console.error(`Error procesando documento con método ${uploadMethod} (intento ${currentAttempt}):`, err);
+          if (isRetryableError(err) && currentAttempt < MAX_FILE_PROCESSING_ATTEMPTS) {
+            const nextDelay = FILE_PROCESSING_RETRY_DELAYS_MS[currentAttempt - 1];
             toast({
               variant: "default",
               title: `Problema de Servicio IA (${uploadMethod === 'extensive' ? 'Extenso' : 'Normal'})`,
-              description: `El servicio está ocupado o limitado. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
-              duration: RETRY_DELAY_MS,
+              description: `El servicio está ocupado o limitado. Se reintentará en ${nextDelay / 1000} segundos... (Próximo intento: ${currentAttempt + 1} de ${MAX_FILE_PROCESSING_ATTEMPTS})`,
+              duration: nextDelay,
             });
-            setTimeout(() => processFileForClinicalNotes(file, attempt + 1), RETRY_DELAY_MS);
+            setTimeout(() => processFileForClinicalNotes(file, currentAttempt + 1), nextDelay);
             return;
           }
 
           let userMessage = `Ocurrió un error al procesar el documento con el método ${uploadMethod === 'extensive' ? 'extenso' : 'normal'}. Por favor, intente de nuevo.`;
            if (err.message && typeof err.message === 'string') {
             if (isRetryableError(err)) {
-              userMessage = `El servicio de IA para procesar archivos (${uploadMethod === 'extensive' ? 'extenso' : 'normal'}) está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
+              userMessage = `El servicio de IA para procesar archivos (${uploadMethod === 'extensive' ? 'extenso' : 'normal'}) está sobrecargado/limitado (todos los ${MAX_FILE_PROCESSING_ATTEMPTS} intentos fallaron). Por favor, intente de nuevo más tarde.`;
             } else if (err.message.includes("[GoogleGenerativeAI Error]") || err.message.toLowerCase().includes("error fetching from")) {
                userMessage = `Hubo un problema de comunicación con el servicio de IA al procesar el archivo (${uploadMethod === 'extensive' ? 'extenso' : 'normal'}). Verifique su conexión o intente más tarde.`;
             } else {
@@ -374,7 +382,6 @@ export function DiagnosisTool() {
     setSubmitted(true);
     setError(null);
     setShowClinicalConcepts(entry.extractedConcepts.length > 0);
-    // No cargamos uploadMethod desde el historial, ya que es una preferencia de uso actual
     toast({ title: "Historial Cargado", description: "Los datos de la entrada del historial se han cargado en el formulario." });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -415,7 +422,6 @@ export function DiagnosisTool() {
         extractedConcepts: extractedConcepts,
         suggestedDiagnoses: suggestedDiagnoses,
         fileName: uploadedFileName,
-        // uploadMethod no se guarda en el historial, es una preferencia de UI
       };
       await db.history.add(historyEntry);
       toast({ title: "Guardado en Historial", description: "El análisis actual se ha guardado en el historial."});
@@ -454,18 +460,20 @@ export function DiagnosisTool() {
   let diagnosesResultFromAI: PromiseSettledResult<SuggestDiagnosesOutput> | undefined;
 
 
-  const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data, attempt = 1) => {
+  const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data, currentAttempt = 1) => {
     setIsLoading(true);
     setError(null);
-    if (attempt === 1) {
+    if (currentAttempt === 1) {
       setSubmitted(true);
       setExtractedConcepts([]);
       setSuggestedDiagnoses([]);
     }
 
-    if (attempt > 1) {
-      toast({ title: "Reintentando Sugerencias IA", description: `Intentando obtener sugerencias de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000});
-    }
+    toast({ 
+      title: currentAttempt === 1 ? "Procesando Solicitud IA..." : "Reintentando Sugerencias IA...",
+      description: `Obteniendo sugerencias y conceptos (intento ${currentAttempt} de ${MAX_AI_SUGGESTION_ATTEMPTS})...`,
+      duration: 5000 
+    });
 
     try {
       [conceptsResult, diagnosesResultFromAI] = await Promise.allSettled([
@@ -484,16 +492,17 @@ export function DiagnosisTool() {
         console.error("Error reintentable sugiriendo diagnósticos:", diagnosesResultFromAI.reason);
       }
 
-      if (needsRetry && attempt < MAX_RETRY_ATTEMPTS) {
+      if (needsRetry && currentAttempt < MAX_AI_SUGGESTION_ATTEMPTS) {
+        const nextDelay = AI_SUGGESTION_RETRY_DELAYS_MS[currentAttempt - 1];
         toast({
           variant: "default",
           title: "Problema de Servicio IA (Sugerencias)",
-          description: `El servicio está ocupado o limitado. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
-          duration: RETRY_DELAY_MS,
+          description: `El servicio está ocupado o limitado. Se reintentará en ${nextDelay / 1000} segundos... (Próximo intento: ${currentAttempt + 1} de ${MAX_AI_SUGGESTION_ATTEMPTS})`,
+          duration: nextDelay,
         });
         setTimeout(() => {
-          onSubmit(data, attempt + 1);
-        }, RETRY_DELAY_MS);
+          onSubmit(data, currentAttempt + 1);
+        }, nextDelay);
         return;
       }
 
@@ -504,7 +513,7 @@ export function DiagnosisTool() {
         let conceptErrorMessage = "Ocurrió un error desconocido al extraer conceptos.";
         if (conceptsResult.reason instanceof Error && conceptsResult.reason.message) {
            if (isRetryableError(conceptsResult.reason)) {
-                conceptErrorMessage = `El servicio de IA para extraer conceptos está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Intente más tarde.`;
+                conceptErrorMessage = `El servicio de IA para extraer conceptos está sobrecargado/limitado (todos los ${MAX_AI_SUGGESTION_ATTEMPTS} intentos fallaron). Intente más tarde.`;
             } else if (conceptsResult.reason.message.includes("[GoogleGenerativeAI Error]") || conceptsResult.reason.message.toLowerCase().includes("error fetching from")) {
                 conceptErrorMessage = "Problema de comunicación al extraer conceptos con IA. Intente más tarde.";
             } else {
@@ -531,7 +540,7 @@ export function DiagnosisTool() {
         let diagnoseErrorMessage = "Ocurrió un error desconocido al sugerir diagnósticos.";
          if (diagnosesResultFromAI.reason instanceof Error && diagnosesResultFromAI.reason.message) {
             if (isRetryableError(diagnosesResultFromAI.reason)) {
-                diagnoseErrorMessage = `El servicio de IA para sugerir diagnósticos está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Intente más tarde.`;
+                diagnoseErrorMessage = `El servicio de IA para sugerir diagnósticos está sobrecargado/limitado (todos los ${MAX_AI_SUGGESTION_ATTEMPTS} intentos fallaron). Intente más tarde.`;
             } else if (diagnosesResultFromAI.reason.message.includes("[GoogleGenerativeAI Error]") || diagnosesResultFromAI.reason.message.toLowerCase().includes("error fetching from")) {
                 diagnoseErrorMessage = "Problema de comunicación al sugerir diagnósticos con IA. Intente más tarde.";
             } else {
@@ -555,24 +564,25 @@ export function DiagnosisTool() {
       }
 
     } catch (e: any) {
-      console.error(`Error durante el procesamiento IA (intento ${attempt}):`, e);
+      console.error(`Error durante el procesamiento IA (intento ${currentAttempt}):`, e);
       let generalErrorMessage = "Ocurrió un error inesperado durante el procesamiento con IA. Por favor, intente de nuevo.";
-      if (isRetryableError(e) && attempt < MAX_RETRY_ATTEMPTS) {
+      if (isRetryableError(e) && currentAttempt < MAX_AI_SUGGESTION_ATTEMPTS) {
+        const nextDelay = AI_SUGGESTION_RETRY_DELAYS_MS[currentAttempt - 1];
         toast({
           variant: "default",
           title: "Problema General de Servicio IA",
-          description: `El servicio está experimentando problemas. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
-          duration: RETRY_DELAY_MS,
+          description: `El servicio está experimentando problemas. Se reintentará en ${nextDelay / 1000} segundos... (Próximo intento: ${currentAttempt + 1} de ${MAX_AI_SUGGESTION_ATTEMPTS})`,
+          duration: nextDelay,
         });
         setTimeout(() => {
-           onSubmit(data, attempt + 1);
-        }, RETRY_DELAY_MS);
+           onSubmit(data, currentAttempt + 1);
+        }, nextDelay);
         return;
       }
 
       if (e.message && typeof e.message === 'string') {
-        if (isRetryableError(e)) {
-          generalErrorMessage = `Uno de los servicios de IA está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
+        if (isRetryableError(e)) { // Max attempts reached
+          generalErrorMessage = `Uno de los servicios de IA está sobrecargado/limitado (todos los ${MAX_AI_SUGGESTION_ATTEMPTS} intentos fallaron). Por favor, intente de nuevo más tarde.`;
         } else if (e.message.includes("[GoogleGenerativeAI Error]") || e.message.toLowerCase().includes("error fetching from")) {
            generalErrorMessage = "Hubo un problema de comunicación general con los servicios de IA. Verifique su conexión o intente más tarde.";
         } else {
@@ -586,10 +596,10 @@ export function DiagnosisTool() {
         description: generalErrorMessage,
       });
     } finally {
-      const isAnyOperationStillRetrying = (
+       const isAnyOperationStillRetrying = (
         ( (conceptsResult?.status === 'rejected' && isRetryableError(conceptsResult.reason)) ||
           (diagnosesResultFromAI?.status === 'rejected' && isRetryableError(diagnosesResultFromAI.reason))
-        ) && attempt < MAX_RETRY_ATTEMPTS
+        ) && currentAttempt < MAX_AI_SUGGESTION_ATTEMPTS
       );
 
       if (!isAnyOperationStillRetrying) {
@@ -765,7 +775,7 @@ export function DiagnosisTool() {
               />
               <Button type="submit" disabled={isLoading || isProcessingFile} className="w-full rounded-md shadow-md hover:bg-primary/90 focus:ring-2 focus:ring-primary focus:ring-offset-2">
                 {(isLoading || isProcessingFile) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isLoading ? (form.formState.isSubmitting ? 'Procesando IA...' : 'Reintentando IA...') : (isProcessingFile ? 'Procesando Archivo...' : 'Obtener Sugerencias IA')}
+                {isLoading ? 'Procesando IA...' : (isProcessingFile ? 'Procesando Archivo...' : 'Obtener Sugerencias IA')}
               </Button>
             </form>
           </Form>
