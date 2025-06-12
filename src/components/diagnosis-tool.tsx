@@ -18,10 +18,10 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel as ShadcnFormLabel, 
+  FormLabel as ShadcnFormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Label } from "@/components/ui/label"; 
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,7 +39,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { extractClinicalConcepts, type ExtractClinicalConceptsOutput } from "@/ai/flows/extract-clinical-concepts";
 import { suggestDiagnoses, type SuggestDiagnosesOutput } from "@/ai/flows/suggest-diagnoses";
 import { extractTextFromDocument } from "@/ai/flows/extract-text-from-document";
-import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2, GripVertical } from "lucide-react";
+import { summarizeExtensiveDocument } from "@/ai/flows/summarize-extensive-document";
+import { Loader2, NotebookText, Lightbulb, Stethoscope, AlertCircle, UploadCloud, XCircle, ClipboardCopy, Star, Save, Trash2, GripVertical, FileTextIcon, FileClockIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { db, type HistoryEntry, type UIDiagnosis } from "@/lib/db";
@@ -72,10 +74,13 @@ const diagnosisFormSchema = z.object({
 
 type DiagnosisFormValues = z.infer<typeof diagnosisFormSchema>;
 type CodingSystemType = DiagnosisFormValues["codingSystem"];
+type UploadMethodType = "normal" | "extensive";
 
-const MAX_RETRY_ATTEMPTS = 2; 
-const RETRY_DELAY_MS = 30000; 
+
+const MAX_RETRY_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 30000;
 const LOCALSTORAGE_CODING_SYSTEM_KEY = 'lastCodingSystem';
+const LOCALSTORAGE_UPLOAD_METHOD_KEY = 'lastUploadMethod';
 
 function isRetryableError(error: any): boolean {
   if (error instanceof Error && error.message) {
@@ -104,12 +109,12 @@ function SortableDiagnosisItem({ diagnosis, onSetPrincipal, onToggleSelected }: 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    zIndex: isDragging ? 10 : undefined, 
+    zIndex: isDragging ? 10 : undefined,
   };
 
   return (
-    <Card 
-      ref={setNodeRef} 
+    <Card
+      ref={setNodeRef}
       style={style}
       className={`bg-card shadow-sm rounded-lg overflow-hidden p-3 ${diagnosis.isPrincipal ? 'border-primary border-2' : ''} ${isDragging ? 'opacity-75 shadow-xl' : ''}`}
     >
@@ -124,9 +129,9 @@ function SortableDiagnosisItem({ diagnosis, onSetPrincipal, onToggleSelected }: 
             onCheckedChange={() => onToggleSelected(diagnosis.id)}
             aria-label={`Seleccionar diagnóstico ${diagnosis.code}`}
         />
-        <Button 
-            variant="ghost" 
-            size="icon" 
+        <Button
+            variant="ghost"
+            size="icon"
             onClick={() => onSetPrincipal(diagnosis.id)}
             className={`h-7 w-7 ${diagnosis.isPrincipal ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
             aria-label="Marcar como principal"
@@ -168,6 +173,8 @@ export function DiagnosisTool() {
   const [fileProcessingError, setFileProcessingError] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadMethod, setUploadMethod] = useState<UploadMethodType>("normal");
+
 
   const { toast } = useToast();
 
@@ -185,10 +192,16 @@ export function DiagnosisTool() {
       if (storedCodingSystem && ["CIE-10", "CIE-11", "CIE-O"].includes(storedCodingSystem)) {
         form.setValue('codingSystem', storedCodingSystem);
       } else {
-        // If nothing valid in localStorage, ensure default is set (which it is by useForm, but this is an explicit backup)
-        // And also update localStorage with the default.
         form.setValue('codingSystem', 'CIE-10');
         localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, 'CIE-10');
+      }
+
+      const storedUploadMethod = localStorage.getItem(LOCALSTORAGE_UPLOAD_METHOD_KEY) as UploadMethodType | null;
+      if (storedUploadMethod && ["normal", "extensive"].includes(storedUploadMethod)) {
+        setUploadMethod(storedUploadMethod);
+      } else {
+        setUploadMethod("normal");
+        localStorage.setItem(LOCALSTORAGE_UPLOAD_METHOD_KEY, "normal");
       }
     }
   }, [form]);
@@ -196,10 +209,9 @@ export function DiagnosisTool() {
   const processFileForClinicalNotes = async (file: File, attempt: number) => {
     setIsProcessingFile(true);
     setFileProcessingError(null);
-    
-    if (attempt > 1) {
-      toast({ title: "Reintentando Procesamiento de Archivo", description: `Intentando procesar el archivo de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000 });
-    }
+
+    const processingMethodDescription = uploadMethod === 'extensive' ? 'usando método para documentos extensos' : 'usando método normal';
+    toast({ title: "Procesando Archivo...", description: `Intentando procesar "${file.name}" ${processingMethodDescription} (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000 });
 
     if (file.type === "text/plain") {
       const reader = new FileReader();
@@ -220,36 +232,44 @@ export function DiagnosisTool() {
       reader.onload = async (e) => {
         const dataUri = e.target?.result as string;
         try {
-          const result = await extractTextFromDocument({ documentDataUri: dataUri, mimeType: file.type });
-          form.setValue("clinicalText", result.extractedText);
-          toast({ title: "Documento procesado", description: "El texto extraído ha sido añadido a las notas clínicas." });
+          let resultText = "";
+          if (uploadMethod === 'extensive') {
+            const result = await summarizeExtensiveDocument({ documentDataUri: dataUri, mimeType: file.type });
+            resultText = result.processedClinicalNotes;
+            toast({ title: "Documento extenso procesado", description: "El texto condensado ha sido añadido a las notas clínicas." });
+          } else {
+            const result = await extractTextFromDocument({ documentDataUri: dataUri, mimeType: file.type });
+            resultText = result.extractedText;
+            toast({ title: "Documento procesado (normal)", description: "El texto extraído ha sido añadido a las notas clínicas." });
+          }
+          form.setValue("clinicalText", resultText);
           setIsProcessingFile(false);
         } catch (err: any) {
-          console.error(`Error procesando documento (intento ${attempt}):`, err);
+          console.error(`Error procesando documento con método ${uploadMethod} (intento ${attempt}):`, err);
           if (isRetryableError(err) && attempt < MAX_RETRY_ATTEMPTS) {
             toast({
               variant: "default",
-              title: "Problema de Servicio IA (Procesamiento Archivo)",
+              title: `Problema de Servicio IA (${uploadMethod === 'extensive' ? 'Extenso' : 'Normal'})`,
               description: `El servicio está ocupado o limitado. Se reintentará en ${RETRY_DELAY_MS / 1000} segundos...`,
               duration: RETRY_DELAY_MS,
             });
             setTimeout(() => processFileForClinicalNotes(file, attempt + 1), RETRY_DELAY_MS);
-            return; 
+            return;
           }
-          
-          let userMessage = "Ocurrió un error al procesar el documento. Por favor, intente de nuevo.";
+
+          let userMessage = `Ocurrió un error al procesar el documento con el método ${uploadMethod === 'extensive' ? 'extenso' : 'normal'}. Por favor, intente de nuevo.`;
            if (err.message && typeof err.message === 'string') {
             if (isRetryableError(err)) {
-              userMessage = `El servicio de IA para procesar archivos está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
+              userMessage = `El servicio de IA para procesar archivos (${uploadMethod === 'extensive' ? 'extenso' : 'normal'}) está sobrecargado/limitado (intento ${attempt} de ${MAX_RETRY_ATTEMPTS} fallido). Por favor, intente de nuevo más tarde.`;
             } else if (err.message.includes("[GoogleGenerativeAI Error]") || err.message.toLowerCase().includes("error fetching from")) {
-               userMessage = "Hubo un problema de comunicación con el servicio de IA al procesar el archivo. Verifique su conexión o intente más tarde.";
+               userMessage = `Hubo un problema de comunicación con el servicio de IA al procesar el archivo (${uploadMethod === 'extensive' ? 'extenso' : 'normal'}). Verifique su conexión o intente más tarde.`;
             } else {
-               userMessage = "No se pudo procesar el documento. Intente con otro archivo o ingrese el texto manualmente.";
+               userMessage = `No se pudo procesar el documento (${uploadMethod === 'extensive' ? 'extenso' : 'normal'}). Intente con otro archivo o ingrese el texto manualmente.`;
             }
           }
           setFileProcessingError(userMessage);
-          toast({ variant: "destructive", title: "Error de Procesamiento de Documento", description: userMessage });
-          form.setValue("clinicalText", `Error al procesar el archivo ${file.name}. Detalles: ${userMessage}. Por favor, ingrese el texto manualmente o intente con otro archivo.`);
+          toast({ variant: "destructive", title: `Error de Procesamiento (${uploadMethod === 'extensive' ? 'Extenso' : 'Normal'})`, description: userMessage });
+          form.setValue("clinicalText", `Error al procesar el archivo ${file.name} con el método ${uploadMethod === 'extensive' ? 'extenso' : 'normal'}. Detalles: ${userMessage}. Por favor, ingrese el texto manualmente o intente con otro archivo.`);
           setIsProcessingFile(false);
         }
       };
@@ -272,26 +292,26 @@ export function DiagnosisTool() {
     if (!file) return;
 
     setUploadedFileName(file.name);
-    form.setValue('clinicalText', ''); 
-    
+    form.setValue('clinicalText', '');
+
     setExtractedConcepts([]);
     setSuggestedDiagnoses([]);
     setError(null);
-    setSubmitted(false); 
+    setSubmitted(false);
     setShowClinicalConcepts(false);
-        
+
     await processFileForClinicalNotes(file, 1);
 
     if (fileInputRef.current) {
-      fileInputRef.current.value = ""; 
+      fileInputRef.current.value = "";
     }
   };
-  
+
   const handleClearFile = () => {
     setUploadedFileName(null);
     form.setValue("clinicalText", "");
     setFileProcessingError(null);
-    
+
     setExtractedConcepts([]);
     setSuggestedDiagnoses([]);
     setError(null);
@@ -318,7 +338,7 @@ export function DiagnosisTool() {
       toast({ variant: "destructive", title: "Error al copiar", description: "No se pudo copiar el texto al portapapeles." });
     }
   };
-  
+
   const handleCopySuggestedDiagnoses = async () => {
     if (!suggestedDiagnoses || suggestedDiagnoses.length === 0) {
       toast({ variant: "destructive", title: "Nada que copiar", description: "No hay diagnósticos sugeridos para copiar." });
@@ -349,11 +369,12 @@ export function DiagnosisTool() {
     setExtractedConcepts(entry.extractedConcepts);
     setSuggestedDiagnoses(entry.suggestedDiagnoses.map(diag => ({
         ...diag,
-        id: diag.id || `${diag.code}-${Date.now()}-${Math.random()}` 
+        id: diag.id || `${diag.code}-${Date.now()}-${Math.random()}`
     })));
     setSubmitted(true);
     setError(null);
-    setShowClinicalConcepts(entry.extractedConcepts.length > 0); 
+    setShowClinicalConcepts(entry.extractedConcepts.length > 0);
+    // No cargamos uploadMethod desde el historial, ya que es una preferencia de uso actual
     toast({ title: "Historial Cargado", description: "Los datos de la entrada del historial se han cargado en el formulario." });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -392,8 +413,9 @@ export function DiagnosisTool() {
         clinicalText: data.clinicalText,
         codingSystem: data.codingSystem,
         extractedConcepts: extractedConcepts,
-        suggestedDiagnoses: suggestedDiagnoses, 
+        suggestedDiagnoses: suggestedDiagnoses,
         fileName: uploadedFileName,
+        // uploadMethod no se guarda en el historial, es una preferencia de UI
       };
       await db.history.add(historyEntry);
       toast({ title: "Guardado en Historial", description: "El análisis actual se ha guardado en el historial."});
@@ -417,7 +439,7 @@ export function DiagnosisTool() {
 
   function handleDragEnd(event: DragEndEvent) {
     const {active, over} = event;
-    
+
     if (over && active.id !== over.id) {
       setSuggestedDiagnoses((items) => {
         const oldIndex = items.findIndex((item) => item.id === active.id);
@@ -435,12 +457,12 @@ export function DiagnosisTool() {
   const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data, attempt = 1) => {
     setIsLoading(true);
     setError(null);
-    if (attempt === 1) { 
+    if (attempt === 1) {
       setSubmitted(true);
       setExtractedConcepts([]);
       setSuggestedDiagnoses([]);
     }
-    
+
     if (attempt > 1) {
       toast({ title: "Reintentando Sugerencias IA", description: `Intentando obtener sugerencias de nuevo (intento ${attempt} de ${MAX_RETRY_ATTEMPTS})...`, duration: RETRY_DELAY_MS - 2000});
     }
@@ -452,7 +474,7 @@ export function DiagnosisTool() {
       ]);
 
       let needsRetry = false;
-      
+
       if (conceptsResult.status === 'rejected' && isRetryableError(conceptsResult.reason)) {
         needsRetry = true;
         console.error("Error reintentable extrayendo conceptos:", conceptsResult.reason);
@@ -472,7 +494,7 @@ export function DiagnosisTool() {
         setTimeout(() => {
           onSubmit(data, attempt + 1);
         }, RETRY_DELAY_MS);
-        return; 
+        return;
       }
 
       if (conceptsResult.status === 'fulfilled' && conceptsResult.value) {
@@ -495,11 +517,11 @@ export function DiagnosisTool() {
           description: conceptErrorMessage,
         });
       }
-      
+
       if (diagnosesResultFromAI.status === 'fulfilled' && diagnosesResultFromAI.value) {
         const diagnosesWithUIFields = (diagnosesResultFromAI.value.diagnoses || []).map((diag, index) => ({
           ...diag,
-          id: `${diag.code}-${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`, 
+          id: `${diag.code}-${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
           isPrincipal: false,
           isSelected: false,
         }));
@@ -516,7 +538,7 @@ export function DiagnosisTool() {
                  diagnoseErrorMessage = `Error al sugerir diagnósticos: ${diagnosesResultFromAI.reason.message}`;
             }
         }
-        if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`); 
+        if (!error) setError(`Error al sugerir diagnósticos: ${diagnoseErrorMessage}`);
          toast({
           variant: "destructive",
           title: "Error en la Sugerencia de Diagnósticos",
@@ -532,7 +554,7 @@ export function DiagnosisTool() {
         }
       }
 
-    } catch (e: any) { 
+    } catch (e: any) {
       console.error(`Error durante el procesamiento IA (intento ${attempt}):`, e);
       let generalErrorMessage = "Ocurrió un error inesperado durante el procesamiento con IA. Por favor, intente de nuevo.";
       if (isRetryableError(e) && attempt < MAX_RETRY_ATTEMPTS) {
@@ -565,15 +587,26 @@ export function DiagnosisTool() {
       });
     } finally {
       const isAnyOperationStillRetrying = (
-        ( (conceptsResult?.status === 'rejected' && isRetryableError(conceptsResult.reason)) || 
-          (diagnosesResultFromAI?.status === 'rejected' && isRetryableError(diagnosesResultFromAI.reason)) 
+        ( (conceptsResult?.status === 'rejected' && isRetryableError(conceptsResult.reason)) ||
+          (diagnosesResultFromAI?.status === 'rejected' && isRetryableError(diagnosesResultFromAI.reason))
         ) && attempt < MAX_RETRY_ATTEMPTS
       );
-      
+
       if (!isAnyOperationStillRetrying) {
           setIsLoading(false);
       }
     }
+  };
+
+  const handleUploadMethodChange = (value: UploadMethodType) => {
+    setUploadMethod(value);
+     if (typeof window !== 'undefined') {
+      localStorage.setItem(LOCALSTORAGE_UPLOAD_METHOD_KEY, value);
+    }
+    toast({
+      title: "Método de Carga Cambiado",
+      description: `Se utilizará el "${value === 'extensive' ? 'Método Documento Extenso' : 'Método Normal'}" para la próxima carga de archivo.`,
+    });
   };
 
   return (
@@ -603,7 +636,7 @@ export function DiagnosisTool() {
                   accept="image/*,application/pdf,.txt"
                   className="hidden"
                   disabled={isProcessingFile}
-                  id="file-upload-input" 
+                  id="file-upload-input"
                 />
               </div>
             </div>
@@ -624,6 +657,38 @@ export function DiagnosisTool() {
               </Alert>
             )}
           </div>
+
+          <div className="mb-6 space-y-2">
+            <Label>Método de Procesamiento de Archivo</Label>
+            <RadioGroup
+              value={uploadMethod}
+              onValueChange={(value: string) => handleUploadMethodChange(value as UploadMethodType)}
+              className="flex flex-col sm:flex-row sm:space-x-4 space-y-2 sm:space-y-0"
+              disabled={isProcessingFile}
+            >
+              <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/50 has-[[data-state=checked]]:bg-accent has-[[data-state=checked]]:text-accent-foreground cursor-pointer flex-1">
+                <RadioGroupItem value="normal" id="method-normal" />
+                <Label htmlFor="method-normal" className="font-normal cursor-pointer flex items-center">
+                  <FileTextIcon className="mr-2 h-5 w-5" />
+                  <div>
+                    <p className="font-medium">Método Normal</p>
+                    <p className="text-xs text-muted-foreground">Extracción estándar de texto.</p>
+                  </div>
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2 p-3 border rounded-md hover:bg-accent/50 has-[[data-state=checked]]:bg-accent has-[[data-state=checked]]:text-accent-foreground cursor-pointer flex-1">
+                <RadioGroupItem value="extensive" id="method-extensive" />
+                <Label htmlFor="method-extensive" className="font-normal cursor-pointer flex items-center">
+                   <FileClockIcon className="mr-2 h-5 w-5" />
+                   <div>
+                    <p className="font-medium">Documento Extenso</p>
+                    <p className="text-xs text-muted-foreground">Condensa y elimina redundancias.</p>
+                  </div>
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
+
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit((data) => onSubmit(data, 1))} className="space-y-6">
@@ -671,16 +736,16 @@ export function DiagnosisTool() {
                 render={({ field }) => (
                   <FormItem>
                     <ShadcnFormLabel>Sistema de Codificación</ShadcnFormLabel>
-                    <Select 
+                    <Select
                       onValueChange={(value: CodingSystemType) => {
                         field.onChange(value);
                         if (typeof window !== 'undefined') {
                           localStorage.setItem(LOCALSTORAGE_CODING_SYSTEM_KEY, value);
                         }
-                        setSuggestedDiagnoses([]); 
+                        setSuggestedDiagnoses([]);
                         toast({ title: "Diagnósticos Anteriores Limpiados", description: "Se limpiaron las sugerencias debido al cambio de sistema de codificación."});
-                      }} 
-                      value={field.value} 
+                      }}
+                      value={field.value}
                       disabled={isProcessingFile || isLoading}
                     >
                       <FormControl>
@@ -708,7 +773,7 @@ export function DiagnosisTool() {
       </Card>
 
       <div className="space-y-6">
-        {error && !isLoading && !isProcessingFile && ( 
+        {error && !isLoading && !isProcessingFile && (
           <Alert variant="destructive" className="shadow-md rounded-xl">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle className="font-headline">Error de IA</AlertTitle>
@@ -734,7 +799,7 @@ export function DiagnosisTool() {
             </Button>
           </div>
         )}
-        
+
         {showClinicalConcepts && ((isLoading && !isProcessingFile && !error) || (submitted && !isLoading && !isProcessingFile && !error)) && (
            <Card className="shadow-lg rounded-xl">
             <CardHeader>
@@ -803,18 +868,18 @@ export function DiagnosisTool() {
                 </div>
               )}
               {!isLoading && suggestedDiagnoses.length > 0 && (
-                <DndContext 
-                  sensors={sensors} 
-                  collisionDetection={closestCenter} 
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
                   onDragEnd={handleDragEnd}
                   modifiers={[restrictToVerticalAxis, restrictToWindowEdges]}
                 >
                   <SortableContext items={suggestedDiagnoses.map(d => d.id)} strategy={verticalListSortingStrategy}>
                     <div className="space-y-2">
                       {suggestedDiagnoses.map((diag) => (
-                        <SortableDiagnosisItem 
-                          key={diag.id} 
-                          diagnosis={diag} 
+                        <SortableDiagnosisItem
+                          key={diag.id}
+                          diagnosis={diag}
                           onSetPrincipal={handleSetPrincipalDiagnosis}
                           onToggleSelected={handleToggleSelectedDiagnosis}
                         />
