@@ -2,7 +2,7 @@
 // src/components/history-panel.tsx
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type HistoryEntry } from "@/lib/db";
 import { Button } from "@/components/ui/button";
@@ -14,11 +14,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer, FileDown, X, BookText } from "lucide-react";
+import { History, UploadCloud, FileText, RotateCcw, Trash2, Upload, Download, Star, CheckSquare, Eye, Printer, FileDown, X, BookText, Search } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -52,15 +53,55 @@ interface HistoryPanelProps {
   onLoadHistory: (entry: HistoryEntry) => void;
 }
 
+const DEBOUNCE_DELAY = 300; // 300ms
+
 export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
   const { toast } = useToast();
-  const historyEntries = useLiveQuery(
+  const allHistoryEntries = useLiveQuery(
     () => db.history.orderBy("timestamp").reverse().toArray(),
-    [] // dependencies
+    [] 
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewEntry, setPreviewEntry] = useState<HistoryEntry | null>(null);
   const exportableContentRef = useRef<HTMLDivElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, DEBOUNCE_DELAY);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchQuery]);
+
+  const filteredHistoryEntries = useMemo(() => {
+    if (!allHistoryEntries) return [];
+    if (!debouncedSearchQuery.trim()) return allHistoryEntries;
+
+    const lowerCaseQuery = debouncedSearchQuery.toLowerCase();
+
+    return allHistoryEntries.filter(entry => {
+      const inClinicalText = entry.clinicalText.toLowerCase().includes(lowerCaseQuery);
+      const inFileName = entry.fileName?.toLowerCase().includes(lowerCaseQuery) || false;
+      const inCodingSystem = entry.codingSystem.toLowerCase().includes(lowerCaseQuery);
+      const inClinicalSummary = entry.clinicalSummary?.toLowerCase().includes(lowerCaseQuery) || false;
+
+      const inConcepts = entry.extractedConcepts.some(concept =>
+        concept.toLowerCase().includes(lowerCaseQuery)
+      );
+
+      const inDiagnoses = entry.suggestedDiagnoses.some(diag =>
+        diag.code.toLowerCase().includes(lowerCaseQuery) ||
+        diag.description.toLowerCase().includes(lowerCaseQuery)
+      );
+
+      return inClinicalText || inFileName || inCodingSystem || inConcepts || inDiagnoses || inClinicalSummary;
+    });
+  }, [allHistoryEntries, debouncedSearchQuery]);
+
 
   const handleDeleteEntry = async (id?: number) => {
     if (id === undefined) return;
@@ -98,7 +139,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
   };
 
   const handleExportHistory = async () => {
-    if (!historyEntries || historyEntries.length === 0) {
+    if (!allHistoryEntries || allHistoryEntries.length === 0) {
       toast({
         title: "Historial Vacío",
         description: "No hay entradas en el historial para exportar.",
@@ -106,8 +147,8 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
       return;
     }
     try {
-      const allEntries = await db.history.toArray();
-      const jsonString = JSON.stringify(allEntries, null, 2);
+      const entriesToExport = await db.history.toArray(); // Export all, not just filtered
+      const jsonString = JSON.stringify(entriesToExport, null, 2);
       const blob = new Blob([jsonString], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -132,12 +173,12 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
   };
 
   const handleExportHistoryCSV = async () => {
-    if (!historyEntries || historyEntries.length === 0) {
+    if (!allHistoryEntries || allHistoryEntries.length === 0) {
       toast({ title: "Historial Vacío", description: "No hay entradas en el historial para exportar a CSV." });
       return;
     }
     try {
-      const allEntries = await db.history.toArray();
+      const entriesToExport = await db.history.toArray(); // Export all, not just filtered
       
       const header = [
         "ID",
@@ -148,7 +189,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
         "Texto Clinico",
         "Conceptos Clinicos",
         "Diagnosticos Sugeridos",
-        "Resumen Clinico" // Nueva columna
+        "Resumen Clinico" 
       ];
 
       const csvRows = [header.join(",")];
@@ -164,7 +205,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
         return stringData;
       };
 
-      allEntries.forEach(entry => {
+      entriesToExport.forEach(entry => {
         const row: string[] = []; 
         row.push(escapeCSVCell(entry.id));
         row.push(escapeCSVCell(new Date(entry.timestamp).toISOString()));
@@ -180,7 +221,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
           return `${escapeCSVCell(diag.code)} (${(diag.confidence * 100).toFixed(0)}%, ${principalMarker}, ${selectedMarker}) - ${escapeCSVCell(diag.description)}`;
         }).join(" | ");
         row.push(escapeCSVCell(diagnosesString));
-        row.push(escapeCSVCell(entry.clinicalSummary)); // Añadir resumen
+        row.push(escapeCSVCell(entry.clinicalSummary)); 
         
         csvRows.push(row.join(","));
       });
@@ -238,7 +279,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                 (typeof diag.isPrincipal === 'boolean' || diag.isPrincipal === undefined) &&
                 (typeof diag.isSelected === 'boolean' || diag.isSelected === undefined)
               ) &&
-              (typeof entry.clinicalSummary === 'string' || typeof entry.clinicalSummary === 'undefined' || entry.clinicalSummary === null) // Validar nuevo campo
+              (typeof entry.clinicalSummary === 'string' || typeof entry.clinicalSummary === 'undefined' || entry.clinicalSummary === null) 
           )
         ) {
           toast({
@@ -260,7 +301,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                 isPrincipal: d.isPrincipal ?? false,
                 isSelected: d.isSelected ?? false,
               })),
-              clinicalSummary: entry.clinicalSummary ?? null, // Asegurar que es null si no existe
+              clinicalSummary: entry.clinicalSummary ?? null, 
             };
         });
         await db.history.bulkAdd(entriesToAdd);
@@ -369,7 +410,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
   };
 
 
-  if (historyEntries === undefined) {
+  if (allHistoryEntries === undefined) {
     return (
       <Card className="shadow-lg rounded-xl">
         <CardHeader>
@@ -397,7 +438,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                       <History className="mr-2 h-6 w-6 text-primary" />
                       Historial de Trabajo
                   </CardTitle>
-                  <CardDescription>Revise, cargue, importe o exporte sus análisis.</CardDescription>
+                  <CardDescription>Revise, cargue, importe o exporte sus análisis. ({filteredHistoryEntries.length} de {allHistoryEntries.length} entradas mostradas)</CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
                   <input
@@ -430,17 +471,17 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                     </AlertDialogContent>
                   </AlertDialog>
 
-                  <Button variant="outline" size="sm" onClick={handleExportHistory} disabled={!historyEntries || historyEntries.length === 0}>
+                  <Button variant="outline" size="sm" onClick={handleExportHistory} disabled={!allHistoryEntries || allHistoryEntries.length === 0}>
                       <Download className="mr-2 h-4 w-4" />
                       Exportar JSON
                   </Button>
-                   <Button variant="outline" size="sm" onClick={handleExportHistoryCSV} disabled={!historyEntries || historyEntries.length === 0}>
+                   <Button variant="outline" size="sm" onClick={handleExportHistoryCSV} disabled={!allHistoryEntries || allHistoryEntries.length === 0}>
                       <Download className="mr-2 h-4 w-4" />
                       Exportar CSV
                   </Button>
                   <AlertDialog>
                   <AlertDialogTrigger asChild>
-                      <Button variant="destructive" size="sm" disabled={!historyEntries || historyEntries.length === 0}>
+                      <Button variant="destructive" size="sm" disabled={!allHistoryEntries || allHistoryEntries.length === 0}>
                       <Trash2 className="mr-2 h-4 w-4" />
                       Borrar Todo
                       </Button>
@@ -464,14 +505,26 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {historyEntries.length === 0 ? (
+          <div className="mb-4">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Buscar en historial (texto, códigos, conceptos...)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 rounded-md shadow-sm"
+              />
+            </div>
+          </div>
+          {filteredHistoryEntries.length === 0 ? (
               <p className="text-muted-foreground text-center py-4">
-                  No hay entradas en el historial todavía. Los resultados de sus análisis aparecerán aquí.
+                  {debouncedSearchQuery ? "No se encontraron entradas que coincidan con su búsqueda." : "No hay entradas en el historial todavía. Los resultados de sus análisis aparecerán aquí."}
               </p>
           ) : (
           <ScrollArea className="h-[400px] pr-3">
             <div className="space-y-4">
-              {historyEntries.map((entry) => (
+              {filteredHistoryEntries.map((entry) => (
                 <Card key={entry.id} className="bg-card shadow-sm rounded-lg">
                   <CardHeader className="pb-3">
                     <div className="flex justify-between items-start">
@@ -491,22 +544,32 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                         </CardDescription>
                       </div>
                       <div className="flex items-center space-x-1">
-                        <DialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-primary"
-                            onClick={() => setPreviewEntry(entry)}
-                            aria-label="Ver detalles"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <DialogTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                        onClick={() => setPreviewEntry(entry)}
+                                        aria-label="Ver detalles"
+                                    >
+                                        <Eye className="h-4 w-4" />
+                                    </Button>
+                                </DialogTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Ver Detalles</p></TooltipContent>
+                        </Tooltip>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label="Eliminar entrada">
-                                  <Trash2 className="h-4 w-4" />
-                              </Button>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label="Eliminar entrada">
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Eliminar Entrada</p></TooltipContent>
+                            </Tooltip>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                           <AlertDialogHeader>
