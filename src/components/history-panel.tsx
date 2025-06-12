@@ -130,6 +130,84 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
     }
   };
 
+  const handleExportHistoryCSV = async () => {
+    if (!historyEntries || historyEntries.length === 0) {
+      toast({ title: "Historial Vacío", description: "No hay entradas en el historial para exportar a CSV." });
+      return;
+    }
+    try {
+      const allEntries = await db.history.toArray();
+      
+      const header = [
+        "ID",
+        "Timestamp ISO",
+        "Fecha Formateada",
+        "Nombre Archivo/Entrada",
+        "Sistema Codificacion",
+        "Texto Clinico",
+        "Conceptos Clinicos",
+        "Diagnosticos Sugeridos"
+      ];
+
+      const csvRows = [header.join(",")];
+
+      const escapeCSVCell = (cellData: string | number | boolean | undefined | null): string => {
+        if (cellData === undefined || cellData === null) {
+          return "";
+        }
+        const stringData = String(cellData);
+        if (stringData.includes(",") || stringData.includes("\"") || stringData.includes("\n")) {
+          return `"${stringData.replace(/"/g, "\"\"")}"`;
+        }
+        return stringData;
+      };
+
+      allEntries.forEach(entry => {
+        const row: string[] = []; // Explicitly string[] for join
+        row.push(escapeCSVCell(entry.id));
+        row.push(escapeCSVCell(new Date(entry.timestamp).toISOString()));
+        row.push(escapeCSVCell(format(new Date(entry.timestamp), "yyyy-MM-dd HH:mm:ss", { locale: es })));
+        row.push(escapeCSVCell(entry.fileName || "Texto Manual"));
+        row.push(escapeCSVCell(entry.codingSystem));
+        row.push(escapeCSVCell(entry.clinicalText));
+        row.push(escapeCSVCell(entry.extractedConcepts.join("; ")));
+        
+        const diagnosesString = entry.suggestedDiagnoses.map(diag => {
+          const principalMarker = diag.isPrincipal ? "P" : "-";
+          const selectedMarker = diag.isSelected ? "S" : "-";
+          return `${escapeCSVCell(diag.code)} (${(diag.confidence * 100).toFixed(0)}%, ${principalMarker}, ${selectedMarker}) - ${escapeCSVCell(diag.description)}`;
+        }).join(" | ");
+        row.push(escapeCSVCell(diagnosesString));
+        
+        csvRows.push(row.join(","));
+      });
+
+      const csvString = csvRows.join("\n");
+      const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `diagcode_ia_history_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Historial Exportado a CSV",
+        description: "El historial se ha descargado como un archivo CSV.",
+      });
+
+    } catch (error) {
+      console.error("Error exporting history to CSV:", error);
+      toast({
+        variant: "destructive",
+        title: "Error de Exportación CSV",
+        description: "No se pudo exportar el historial a CSV.",
+      });
+    }
+  };
+
+
   const handleImportFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -255,7 +333,7 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
             clonedExportableContent.style.maxHeight = 'none';
           }
           if (document.documentElement.classList.contains('dark')) {
-              const clonedBody = document.body; // Or the specific element
+              const clonedBody = document.body; 
               clonedBody.classList.add('dark');
           }
         }
@@ -350,6 +428,10 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                   <Button variant="outline" size="sm" onClick={handleExportHistory} disabled={!historyEntries || historyEntries.length === 0}>
                       <Download className="mr-2 h-4 w-4" />
                       Exportar JSON
+                  </Button>
+                   <Button variant="outline" size="sm" onClick={handleExportHistoryCSV} disabled={!historyEntries || historyEntries.length === 0}>
+                      <Download className="mr-2 h-4 w-4" />
+                      Exportar CSV
                   </Button>
                   <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -512,11 +594,20 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
                   </TooltipTrigger>
                   <TooltipContent><p>Imprimir</p></TooltipContent>
                 </Tooltip>
-                {/* The default DialogContent X button is used for closing, no need for an additional one here if this is preferred */}
+                 <DialogClose asChild>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Cerrar diálogo de vista previa">
+                                <X className="h-5 w-5" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Cerrar</p></TooltipContent>
+                    </Tooltip>
+                </DialogClose>
               </div>
             </DialogHeader>
             
-            <ScrollArea className="flex-grow overflow-y-auto px-6 pb-6"> {/* Apply padding here instead of inner div for better scroll */}
+            <ScrollArea className="flex-grow overflow-y-auto px-6 pb-6"> 
               <div className="space-y-4 pt-4">
                 <div>
                   <Label className="font-semibold text-base">Fuente:</Label>
@@ -575,7 +666,6 @@ export function HistoryPanel({ onLoadHistory }: HistoryPanelProps) {
               </div>
             </ScrollArea>
           </div>
-          {/* DialogFooter is removed, the main X button from DialogContent handles closing */}
         </DialogContent>
       )}
     </Dialog>
